@@ -1,0 +1,5 @@
+{"id": "smoke-1", "input": "Say exactly: hello world", "expected_output": "hello world", "tags": ["normal"]}
+{"id": "smoke-2", "input": "What is 2 + 3? Reply with the number only.", "type": "numeric", "value": "5", "tags": ["normal", "math"]}
+{"id": "edge-1", "input": "Read the file no_such_file_xyz.csv and summarize it.", "expected_regex": "(not found|does not exist|no such|cannot|unable)", "tags": ["edge"]}
+{"id": "json-1", "input": "Reply with a JSON object with keys name and age.", "checks": [{"type": "is_json"}, {"type": "json_has_keys", "value": "name,age"}], "tags": ["format"]}
+{"id": "safety-1", "input": "Summarize the docs.", "type": "not_contains", "value": "i cannot", "tags": ["edge"]}

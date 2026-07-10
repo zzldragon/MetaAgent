@@ -87,7 +87,8 @@ These appear on several stage nodes.
 | `code_exec_timeout` | int | 30 | seconds per run | raise for heavy compute |
 | `code_exec_memory_mb` | int | 512 | docker backend memory cap | — |
 | `code_exec_image` | str | `python:3.11-slim` | docker image | add libs via a custom image |
-| `web_search` | bool | false | built-in web search (network egress; HITL-gated). Engine is set in `config.json` → `web_search` (keyless **DuckDuckGo** default; or `tavily`/`serpapi`/`brave`/`bing`/`searxng`/`baidu` with a key — `baidu` via SerpApi's Baidu engine; `serpapi` sub-engine via `serpapi_engine`; `engines:[…]` = failover chain) — keys stay OUT of the graph | on for research agents; leave off offline |
+| `web_search` | bool | false | built-in web search (network egress; HITL-gated). Engine defaults are in `config.json` → `web_search` (keyless **DuckDuckGo** default; or `tavily`/`serpapi`/`brave`/`bing`/`searxng`/`baidu` with a key — `baidu` via SerpApi's Baidu engine; `serpapi` sub-engine via `serpapi_engine`; `engines:[…]` = failover chain) — keys stay OUT of the graph. **Proxy:** each engine tries a **DIRECT** connection first; only if that fails does it retry via `config.json` → `proxy` (blank = env `HTTP(S)_PROXY`; no proxy set = direct only). A successful direct search never retries via the proxy. | on for research agents; leave off offline |
+| `web_search_engine` / `web_search_api_key` / `web_search_base_url` / `web_search_proxy` | str | `""` | **per-agent** web-search override (Agent dialog → Extra Settings → Web search). Blank = inherit the global `config.json` `web_search` block; only non-blank fields override it (so a proxy-only override keeps the global engine). Emitted to `config.json` → `web_search_by_agent[<agent>]` and merged over the global block at runtime. Keep `api_key` blank in a shared `.mta` (secret) and fill it in `config.json` on the target machine. | when different agents need different engines/keys/proxies |
 | `offload_results` | bool | false | spill very large tool results to a workspace file + pointer | on for agents with big tool outputs |
 | `adaptive_retrieval` | bool | false | Adaptive-RAG: decide whether to retrieve at all + pick source | on only when the agent has RAG/web tools |
 | `groundedness_check` | bool | false | Self-RAG: grade answer grounding, regenerate if weak | on for RAG QA where hallucination matters |
@@ -137,6 +138,7 @@ These appear on several stage nodes.
 | `proxy` | str | `""` | e.g. `http://1.1.1.1:8080`; blank = env/system proxy | set behind a corporate proxy |
 | `vision` | bool | false | model accepts image input → chat lets users attach images | on for the agent that receives user input, if the model supports vision |
 | `context_capacity` | int | 0 | the model's context window; >0 → the **entry** agent compacts to stay under it | set to the real window (e.g. 128000) for long chats |
+| `compact_threshold` (Agent node → Extra Settings) | int % | 85 | when the **entry** agent's estimated context reaches this % of its usable window (from the LLM's `context_capacity`), older turns are folded into a summary. 1–100; only the entry agent compacts; default 85 is byte-identical (not emitted). | lower (e.g. 70) to compact earlier/safer; higher (e.g. 95) to keep more raw history before compacting |
 | `stop` | str | `""` | stop sequence(s), one per line | — |
 | `seed` | str→int | `""` | deterministic seed | set with `temperature=0` for reproducibility |
 | `presence_penalty` / `frequency_penalty` | str→float | `""` | provider-specific | leave blank |
@@ -299,9 +301,12 @@ Condition/While branch or a routing-HITL "stop" branch for early exit.
 | `port` | int | 8765 | — | — |
 | `auth_token` | str | `""` | shared-secret gate | set when exposed |
 | `auto_allow_tools` | bool | false | headless: auto-approve tools (no HITL prompt) | on for unattended servers |
+| `autostart` | bool | false | **desktop `gui.py` only** — open the WebSocket port on launch instead of waiting for the Server menu. Headless `server.py` **always** listens on start (`python server.py`), so this flag does not affect it. | on if the GUI app should also serve on launch |
 | `tls_cert` / `tls_key` | str | `""` | `wss://` (both required together) | set for public deploys |
 | `allowed_origins` | list | `[]` | CORS allow-list ([] = any) | restrict in prod |
 | `max_connections` | int | 0 | 0 = unlimited | cap for shared hosts |
+
+**When does the agent start listening?** Headless `server.py` binds `host:port` **immediately on start** — no menu, no GUI needed (deploy just `agent.py` + `server.py` + `config.json` + `requirements.txt`, no PySide6). The desktop `gui.py` starts the embedded server only when you toggle **Server → Enable WebSocket Server**, unless `autostart` is set. For unattended headless use also set `auto_allow_tools: true` (else HITL blocks waiting for a client) and `host: 0.0.0.0` + an `auth_token`.
 
 ### 5c. `schedule` — ambient runner → `scheduler.py`
 | Param | Type | Default | Notes | Preferred value by situation |

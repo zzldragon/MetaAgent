@@ -1,0 +1,100 @@
+{
+  "llms": {
+    "author": [
+      {
+        "provider": "siliconflow",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "api_key": "",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "vision": false,
+        "context_capacity": 0,
+        "temperature": 0.95,
+        "request_timeout_s": 120.0,
+        "proxy": "http://10.144.1.10:8080"
+      }
+    ],
+    "illustrator": [
+      {
+        "provider": "siliconflow",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "api_key": "",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "vision": false,
+        "context_capacity": 0,
+        "request_timeout_s": 120.0,
+        "proxy": "http://10.144.1.10:8080",
+        "tool_choice": "specific",
+        "tool_choice_name": "illustrate_missing_pages"
+      }
+    ],
+    "bookbinder": [
+      {
+        "provider": "siliconflow",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "api_key": "",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "vision": false,
+        "context_capacity": 0,
+        "request_timeout_s": 120.0,
+        "proxy": "http://10.144.1.10:8080",
+        "response_format": "json_object",
+        "tool_choice": "specific",
+        "tool_choice_name": "make_picture_book_pdf"
+      }
+    ],
+    "checker": [
+      {
+        "provider": "siliconflow",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "api_key": "",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "vision": false,
+        "context_capacity": 0,
+        "request_timeout_s": 120.0,
+        "proxy": "http://10.144.1.10:8080",
+        "response_format": "json_object",
+        "tool_choice": "specific",
+        "tool_choice_name": "sync_page_status"
+      }
+    ]
+  },
+  "hitl_confirm": true,
+  "harden_prompts": true,
+  "summary_max_chars": 4000,
+  "high_risk_tools": [],
+  "safe_tools": [],
+  "stream": true,
+  "code_style": "single",
+  "parallel_tools": false,
+  "sequential_tools": [],
+  "parallel_safe_tools": [],
+  "offload_threshold_chars": 12000,
+  "checkpoint": false,
+  "guardrails": {
+    "enabled": true,
+    "scan_tool_results": true,
+    "scan_output": true,
+    "block_dangerous_args": true,
+    "injection_block": false,
+    "scan_input": false,
+    "pii": false,
+    "llm_classifier": false,
+    "file_max_mb": 10,
+    "allowed_image_types": [],
+    "secret_patterns": [],
+    "arg_denylist": [],
+    "injection_phrases": []
+  },
+  "return_direct_tools": [
+    "make_picture_book_pdf",
+    "sync_page_status"
+  ],
+  "storage": {
+    "backend": "disk",
+    "sqlite_path": "memory.db",
+    "dsn": ""
+  },
+  "while_max_iterations": {
+    "gate": 5
+  }
+}

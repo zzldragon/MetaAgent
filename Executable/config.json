@@ -7,5 +7,6 @@
   "proxy": "",
   "context_capacity": 0,
   "theme": "light",
-  "language": "en"
+  "language": "en",
+  "provider": "siliconflow"
 }

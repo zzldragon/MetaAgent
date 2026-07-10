@@ -1,0 +1,4 @@
+openai>=1.40.0
+PySide6>=6.5.0
+Pillow
+reportlab

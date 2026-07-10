@@ -5,8 +5,8 @@ A shared in-memory book (_BOOK) mirrors the LangGraph State: the author populate
 the story + per-page specs + a single character-reference prompt; a worker pool then
 generates every page's image IN PARALLEL (each page anchors to the one character-
 reference image, never to the previous page, so the pages are independent); the
-bookbinder assembles the PDF. Images come from SiliconFlow (Qwen-Image /
-Qwen-Image-Edit); the PDF from reportlab.
+bookbinder assembles the PDF. Images come from SiliconFlow's FREE Kwai-Kolors/Kolors model (text-to-image and
+image-to-image from a reference image); the PDF from reportlab.
 
 Helpers live on the _PB class (indented `def`s) so the generator's top-level-`def`
 tool scan never mistakes them for tools.
@@ -25,7 +25,40 @@ _LOCK = threading.RLock()        # guards _BOOK across parallel pool workers
 
 class _PB:
     """Internal helpers (NOT tools — indented defs are invisible to the tool scan)."""
-    SF_URL = "https://api.siliconflow.cn/v1/images/generations"
+
+    # ── platform profiles: switch the whole stack between SiliconFlow and NVIDIA ──
+    # The GUI writes config['platform'] + per-platform overrides/keys under
+    # config['platforms']; these are the built-in defaults (user-overridable).
+    #   SiliconFlow -> DeepSeek-V4-Flash (chat) + Kwai-Kolors/Kolors (images)
+    #   NVIDIA      -> llama-3.1-70b (chat) + SiliconFlow Kolors (images; NVIDIA has no image API)
+    # `provider` only distinguishes Anthropic from OpenAI-compatible at runtime; both
+    # of these are OpenAI-compatible, but it's set correctly so the config isn't
+    # misleading (base_url + model + api_key are what actually drive the call).
+    _PLATFORM_DEFAULTS = {
+        "siliconflow": {
+            "label": "SiliconFlow",
+            "provider": "siliconflow",
+            "chat_base_url": "https://api.siliconflow.cn/v1",
+            "chat_model": "deepseek-ai/DeepSeek-V4-Flash",
+            "image_url": "https://api.siliconflow.cn/v1/images/generations",
+            "image_model": "Kwai-Kolors/Kolors",
+            "edit_model": "Kwai-Kolors/Kolors",
+        },
+        "nvidia": {
+            "label": "NVIDIA",
+            "provider": "nvidia",
+            "chat_base_url": "https://integrate.api.nvidia.com/v1",
+            # llama-3.1-70b is much faster than deepseek-v4-pro on NVIDIA's endpoint.
+            "chat_model": "deepseek-ai/deepseek-v4-flash",
+            # NVIDIA's API is LLM-only (no image endpoint), so images are generated on
+            # SiliconFlow with the FREE Kwai-Kolors/Kolors model (t2i + i2i). That needs
+            # a SiliconFlow key: image_api_key here, else the siliconflow profile's key.
+            "image_url": "https://api.siliconflow.cn/v1/images/generations",
+            "image_model": "Kwai-Kolors/Kolors",
+            "edit_model": "Kwai-Kolors/Kolors",
+            "image_api_key": "",
+        },
+    }
 
     @staticmethod
     def cfg() -> dict:
@@ -37,68 +70,243 @@ class _PB:
             return {}
 
     @staticmethod
+    def platform_defaults() -> dict:
+        """Built-in profiles (fresh copy) — the GUI reads these to seed config."""
+        return {k: dict(v) for k, v in _PB._PLATFORM_DEFAULTS.items()}
+
+    @staticmethod
+    def active_platform() -> str:
+        p = (_PB.cfg().get("platform") or "siliconflow").strip().lower()
+        return p if p in _PB._PLATFORM_DEFAULTS else "siliconflow"
+
+    @staticmethod
+    def profile(platform: str = "") -> dict:
+        """The active (or named) platform profile = built-in defaults + any user
+        override saved under config['platforms'][platform]."""
+        p = (platform or _PB.active_platform())
+        prof = dict(_PB._PLATFORM_DEFAULTS.get(p, _PB._PLATFORM_DEFAULTS["siliconflow"]))
+        prof.update((_PB.cfg().get("platforms") or {}).get(p, {}) or {})
+        return prof
+
+    @staticmethod
     def api_key() -> str:
-        """Resolve the SiliconFlow key. A MetaAgent-generated agent stores keys
-        per-LLM under config['llms'][agent][i]['api_key'] (NOT a top-level key),
-        so read from there — preferring a SiliconFlow endpoint — and fall back to
-        a standalone top-level key or the usual env vars."""
+        """Resolve the API key for the ACTIVE platform: the per-platform key the GUI
+        saved (config['platforms'][platform]['api_key']) wins; then a top-level key /
+        any configured LLM key / the platform's env var."""
         cfg = _PB.cfg()
-        key = (cfg.get("deepseek_api_key") or cfg.get("api_key") or "").strip()
-        if key:
-            return key
-        llms = cfg.get("llms") or {}
-        entries = [c for cfgs in llms.values() for c in (cfgs or [])
+        p = _PB.active_platform()
+        k = (((cfg.get("platforms") or {}).get(p) or {}).get("api_key") or "").strip()
+        if k:
+            return k
+        k = (cfg.get("deepseek_api_key") or cfg.get("api_key") or "").strip()
+        if k:
+            return k
+        entries = [c for cfgs in (cfg.get("llms") or {}).values() for c in (cfgs or [])
                    if isinstance(c, dict) and (c.get("api_key") or "").strip()]
-        # prefer a SiliconFlow LLM (same endpoint as the image API), else any key
-        for c in entries:
-            if "siliconflow" in (c.get("base_url") or "").lower():
-                return c["api_key"].strip()
         if entries:
             return entries[0]["api_key"].strip()
-        return (os.environ.get("SILICONFLOW_API_KEY")
-                or os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+        env = "NVIDIA_API_KEY" if p == "nvidia" else "SILICONFLOW_API_KEY"
+        return (os.environ.get(env) or os.environ.get("DEEPSEEK_API_KEY") or "").strip()
+
+    @staticmethod
+    def image_conf():
+        """Image settings for the active platform: (url, image_model, edit_model, key).
+        The image provider can DIFFER from the chat provider (e.g. NVIDIA chat but
+        SiliconFlow Kolors) — so the key is resolved for the IMAGE endpoint: an
+        explicit `image_api_key`, else the key of whichever platform hosts the image
+        URL, else the active platform's key."""
+        cfg = _PB.cfg()
+        prof = _PB.profile()
+        url = prof.get("image_url", "")
+        key = (prof.get("image_api_key") or "").strip()
+        if not key:
+            host = (url or "").lower()
+            plats = cfg.get("platforms") or {}
+            for pk, d in _PB._PLATFORM_DEFAULTS.items():
+                base = (d.get("image_url") or "").split("/v1")[0].lower()
+                if base and base in host:
+                    key = ((plats.get(pk) or {}).get("api_key") or "").strip()
+                    if key:
+                        break
+        if not key:
+            key = _PB.api_key()
+        return url, prof.get("image_model", ""), prof.get("edit_model", ""), key
+
+    @staticmethod
+    def _proxy() -> str:
+        """Proxy for image/tool HTTP calls: the active platform's proxy override, else
+        the top-level config proxy, else '' (blank = honor env / direct). The chat
+        LLMs already route through config['proxy']; this brings the image tool inline."""
+        cfg = _PB.cfg()
+        p = _PB.active_platform()
+        return ((((cfg.get("platforms") or {}).get(p) or {}).get("proxy")
+                 or cfg.get("proxy") or "")).strip()
+
+    @staticmethod
+    def _opener():
+        """A urllib opener wired with the configured proxy (if any). A blank proxy
+        keeps urllib's default (which honors HTTP(S)_PROXY env vars)."""
+        import urllib.request
+        px = _PB._proxy()
+        if px:
+            return urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": px, "https": px}))
+        return urllib.request.build_opener()
+
+    @staticmethod
+    def _img_from_response(body, out_path) -> str:
+        """Write the generated image from an API response — either a URL to download
+        or inline base64 — covering the common shapes across providers."""
+        # inline base64: OpenAI-images (data[].b64_json), NVIDIA/SD (artifacts[].base64),
+        # or a bare field.
+        arr = body.get("data") or body.get("images") or body.get("artifacts") or []
+        b64 = None
+        if arr and isinstance(arr[0], dict):
+            b64 = arr[0].get("b64_json") or arr[0].get("base64") or arr[0].get("b64")
+        b64 = b64 or body.get("b64_json") or body.get("image") or body.get("artifact")
+        if b64:
+            with open(out_path, "wb") as f:
+                f.write(base64.b64decode(b64))
+            return out_path
+        url = None
+        if arr and isinstance(arr[0], dict):
+            url = arr[0].get("url")
+        url = url or body.get("url")
+        if not url:
+            raise RuntimeError("No image in response: " + str(body)[:200])
+        with _PB._opener().open(url, timeout=120) as r, open(out_path, "wb") as f:
+            f.write(r.read())
+        return out_path
 
     @staticmethod
     def gen_image(prompt: str, out_path: str, source_path: str = "",
-                  image_model: str = "Qwen/Qwen-Image",
-                  edit_model: str = "Qwen/Qwen-Image-Edit",
+                  image_model: str = "", edit_model: str = "",
                   image_size: str = "1024x1024") -> str:
-        """Call the SiliconFlow image API (text-to-image, or edit when source_path is
-        given) and download the PNG to out_path. Raises on failure. The model/size
-        are passed in (snapshotted under _LOCK by the caller) so this touches no
-        shared global while running on parallel pool threads."""
+        """Generate an image on the ACTIVE platform and save it to out_path. Text-to-
+        image (no source_path) or image-to-image (source_path = a reference image, for
+        character consistency). The endpoint / model / key come from the platform
+        profile (SiliconFlow Kolors for both platforms; NVIDIA has no image API); model
+        args override the profile if given. Raises on failure."""
+        import time
+        import urllib.error
         import urllib.request
-        key = _PB.api_key()
+        url, img_model, edit_m, key = _PB.image_conf()
         if not key:
             raise RuntimeError(
-                "No SiliconFlow API key found — set one on any LLM node in the "
-                "designer (it is saved under config.json 'llms'), or set the "
-                "SILICONFLOW_API_KEY environment variable.")
-        if source_path:                       # edit mode (Qwen-Image-Edit)
+                "No image API key — open the maker's 'Set API Key' and enter the key "
+                "for the image provider (%s)." % (url or "?"))
+        model = (edit_model or edit_m) if source_path else (image_model or img_model)
+        # Choose the request shape by the IMAGE endpoint (which may be a different
+        # provider than the chat LLM): SiliconFlow uses native fields; anything else
+        # gets the OpenAI-images shape (base64 back).
+        if "siliconflow" in (url or "").lower():
+            payload = {"model": model, "prompt": prompt, "image_size": image_size,
+                       "batch_size": 1, "num_inference_steps": 20, "guidance_scale": 7.5}
+        else:
+            payload = {"model": model, "prompt": prompt, "size": image_size,
+                       "n": 1, "response_format": "b64_json"}
+        if source_path:                        # image-to-image: base it on the old image
             with open(source_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            payload = {"model": edit_model,
-                       "prompt": prompt, "image": "data:image/png;base64," + b64,
-                       "num_inference_steps": 20, "guidance_scale": 4}
-        else:                                 # text-to-image (Qwen-Image)
-            payload = {"model": image_model,
-                       "prompt": prompt, "image_size": image_size,
-                       "n": 1, "num_inference_steps": 20}
+                payload["image"] = "data:image/png;base64," + base64.b64encode(f.read()).decode()
         req = urllib.request.Request(
-            _PB.SF_URL, data=json.dumps(payload).encode("utf-8"),
+            url, data=json.dumps(payload).encode("utf-8"),
             headers={"Authorization": "Bearer " + key,
-                     "Content-Type": "application/json",
+                     "Content-Type": "application/json", "Accept": "application/json",
                      "User-Agent": "PictureBookCanvas/1.0"}, method="POST")
-        with urllib.request.urlopen(req, timeout=180) as r:
-            body = json.loads(r.read().decode("utf-8"))
-        arr = body.get("images") or body.get("data") or []
-        url = arr[0].get("url") if arr and isinstance(arr[0], dict) else None
-        if not url:
-            raise RuntimeError("No image URL in response: " + str(body)[:200])
+        # Retry with exponential back-off on rate-limit / transient server errors.
+        opener = _PB._opener()
+        body = None
+        for attempt in range(5):
+            try:
+                with opener.open(req, timeout=180) as r:
+                    body = json.loads(r.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as e:
+                if e.code in (429, 500, 502, 503) and attempt < 4:
+                    time.sleep(4 * (attempt + 1))   # 4s, 8s, 12s, 16s
+                    continue
+                raise
+            except urllib.error.URLError:
+                if attempt < 4:
+                    time.sleep(4 * (attempt + 1))
+                    continue
+                raise
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-        with urllib.request.urlopen(url, timeout=120) as r, open(out_path, "wb") as f:
-            f.write(r.read())
-        return out_path
+        return _PB._img_from_response(body, out_path)
+
+    # ── durable book state (only when checkpoint/resume is enabled) ────────────
+    # The graph checkpoint restores the SHARED STATE (page_count, counters) but not
+    # _BOOK (the story text, per-page prompts, char-ref path) — those live here in
+    # the tool module. To recover a book after the process restarts, persist _BOOK
+    # to disk and reload it. Gated on config['checkpoint'] so a non-resumable app
+    # does ZERO extra I/O and behaves byte-identically.
+    _STATE_FILE = "_active_book.json"
+
+    @staticmethod
+    def persist_on() -> bool:
+        return bool(_PB.cfg().get("checkpoint"))
+
+    @staticmethod
+    def save_book():
+        """Snapshot _BOOK to disk (no-op unless checkpoint/resume is on)."""
+        if not _PB.persist_on():
+            return
+        try:
+            with _LOCK:
+                snap = json.loads(json.dumps(_BOOK))   # plain, JSON-safe copy
+            with open(_PB._STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(snap, f, ensure_ascii=False)
+        except Exception:  # noqa: BLE001 — persistence must never break a run
+            pass
+
+    @staticmethod
+    def ensure_loaded():
+        """If _BOOK is empty (e.g. after a restart) and a persisted book exists,
+        reload it so a resumed illustrator/bookbinder can rebuild the book. No-op
+        unless checkpoint/resume is on and there's something to load."""
+        if not _PB.persist_on():
+            return
+        with _LOCK:
+            if _BOOK:
+                return
+        try:
+            with open(_PB._STATE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return
+        pages = {int(k): v for k, v in (data.get("pages") or {}).items()}
+        data["pages"] = pages
+        with _LOCK:
+            _BOOK.clear()
+            _BOOK.update(data)
+
+    @staticmethod
+    def write_progress():
+        """Compute the TRUE progress from the real book and write pages_illustrated /
+        illustrated_pages / missing_pages straight into shared state via the internal
+        path (same as the built-in set_state tool — NOT a ```state block, which the
+        tool-output guardrail blocks). A page counts as done once it has an image
+        file. Returns (done, missing, total). _rs / _STATE_LOCK / _apply_state resolve
+        from the inlined generated-agent module globals; guarded so a standalone
+        import still works."""
+        _PB.ensure_loaded()
+        with _LOCK:
+            pages = _BOOK.get("pages", {})
+            done = sorted(int(p) for p, s in pages.items() if s.get("image_path"))
+            total = len(pages)
+        missing = sorted(int(p) for p in pages if int(p) not in done)
+        updates = {"pages_illustrated": len(done),
+                   "illustrated_pages": done, "missing_pages": missing}
+        try:
+            st = _rs().rec.get("state")
+            if st is not None:
+                with _STATE_LOCK:
+                    applied = _apply_state(st, updates)
+                    if applied:
+                        _rs().rec.setdefault("written", set()).update(applied.keys())
+        except NameError:
+            pass
+        return done, missing, total
 
     # ── PDF rendering helpers (ported from the original pdf_tool.py) ───────────
     _fonts = None                      # cached (regular, bold) names after register
@@ -240,8 +448,9 @@ def start_book(title: str, language: str = "English", output_dir: str = "output"
         _BOOK.update(title=title, language=language, output_dir=run_dir,
                      base_dir=output_dir, pages={},
                      main_character="", char_ref_prompt="", char_ref_path="",
-                     image_model="Qwen/Qwen-Image", edit_model="Qwen/Qwen-Image-Edit",
+                     image_model="Kwai-Kolors/Kolors", edit_model="Kwai-Kolors/Kolors",
                      image_size="1024x1024")
+    _PB.save_book()                       # reset the persisted snapshot for a fresh book
     return f"Started book '{title}' ({language}); output dir = {run_dir}"
 
 
@@ -261,6 +470,7 @@ def set_character(main_character: str, character_ref_prompt: str) -> str:
             return "[ERROR] Call start_book first."
         _BOOK["main_character"] = main_character
         _BOOK["char_ref_prompt"] = character_ref_prompt
+    _PB.save_book()
     return "Recorded main character + character-reference prompt."
 
 
@@ -281,6 +491,7 @@ def add_page(page: int, sentence: str, image_prompt: str,
         _BOOK.setdefault("pages", {})[int(page)] = {
             "sentence": sentence, "image_prompt": image_prompt,
             "main_char_present": bool(main_char_present), "image_path": ""}
+    _PB.save_book()
     return f"Added page {page}."
 
 
@@ -291,166 +502,22 @@ def generate_character_ref() -> str:
         prompt = _BOOK.get("char_ref_prompt", "")
         out_dir = _BOOK.get("output_dir", "output")
         existing = _BOOK.get("char_ref_path", "")
-        image_model = _BOOK.get("image_model", "Qwen/Qwen-Image")
     if existing and os.path.isfile(existing):
         return f"Character reference image already exists at {existing}"
     if not prompt:
         return "[ERROR] No character_ref_prompt — call set_character first."
     out_path = os.path.join(out_dir, "character_ref.png")
     try:
-        _PB.gen_image(prompt, out_path, image_model=image_model)
+        _PB.gen_image(prompt, out_path)       # model comes from the active platform
     except Exception as e:
         return f"[ERROR] character reference image failed: {e}"
     with _LOCK:
         _BOOK["char_ref_path"] = out_path
+    _PB.save_book()
     return f"Character reference image saved to {out_path}"
 
 
 # ── illustration (one page; the worker pool fans these out in parallel) ──────────
-@tool
-def generate_page_image(page: int) -> str:
-    """Generate and save the illustration for ONE page. Returns an informative error string prefixed with '[ERROR]' on failure, or hangs on success (the success return is not implemented).
-
-    Parameters:
-        page (int): The page number (0-based, as used in add_page). The page must already exist via add_page() before calling this tool.
-
-    Returns:
-        str: On failure, returns an error string like '[ERROR] No page {page} — call add_page first.' or '[ERROR] page {page} needs the character reference — call generate_character_ref before illustrating main-character pages.' On success, the function hangs without returning (incomplete implementation).
-
-    Prerequisites:
-        - The page must exist (call add_page first).
-        - For pages where main_char_present is True, generate_character_ref must have been called first and the reference image must exist.
-
-    Notes:
-        - This tool is not idempotent due to potential inconsistent state if _LOCK is not used consistently by other tools modifying _BOOK.
-        - Pages are independent, so these calls can run in parallel across workers.
-    """
-    with _LOCK:
-        spec = _BOOK.get("pages", {}).get(int(page))
-        out_dir = _BOOK.get("output_dir", "output")
-        char_ref = _BOOK.get("char_ref_path", "")
-        main_char = _BOOK.get("main_character", "")
-        image_model = _BOOK.get("image_model", "Qwen/Qwen-Image")
-        edit_model = _BOOK.get("edit_model", "Qwen/Qwen-Image-Edit")
-        image_size = _BOOK.get("image_size", "1024x1024")
-    if not spec:
-        return f"[ERROR] No page {page} — call add_page first."
-    # A main-character page MUST anchor to the reference image; later-page prompts
-    # deliberately omit the character's appearance, so without the reference the
-    # hero would silently vanish. Fail loud so the agent generates the ref first.
-    if spec.get("main_char_present") and not (char_ref and os.path.isfile(char_ref)):
-        return ("[ERROR] page {0} needs the character reference — call "
-                "generate_character_ref before illustrating main-character "
-                "pages.".format(page))
-    out_path = os.path.join(out_dir, f"page_{int(page):02d}.png")
-    try:
-        if spec.get("main_char_present"):
-            wrapped = (f"The main character is {main_char}. Preserve ALL characters' "
-                       "exact appearances — species, colours, clothing, body shape, "
-                       "facial features — identically to the reference image. Only "
-                       "change the background scene, setting, lighting and action. "
-                       f"New scene: {spec['image_prompt']}")
-            _PB.gen_image(wrapped, out_path, source_path=char_ref,
-                          edit_model=edit_model)
-        else:
-            _PB.gen_image(spec["image_prompt"], out_path, image_model=image_model,
-                          image_size=image_size)
-    except Exception as e:
-        return f"[ERROR] page {page} image failed: {e}"
-    with _LOCK:
-        _BOOK["pages"][int(page)]["image_path"] = out_path
-    return f"Saved page {page} image to {out_path}"
-
-
-# ── assembly ─────────────────────────────────────────────────────────────────────
-@tool
-def make_picture_book_pdf(filename: str = "picturebook.pdf") -> str:
-    """Create a PDF with a cover page (gradient background, framed, wrapped title) using the global _BOOK dictionary (requires 'title', 'output_dir', and 'pages' keys).
-
-    Parameters:
-    filename (str, optional): Output PDF filename. Defaults to "picturebook.pdf". If it doesn't end with '.pdf', the extension is added.
-
-    Returns:
-    str: Path to the saved PDF on success, or an error message string if no pages exist or reportlab is missing.
-
-    Call this after the book data is fully populated (title, pages generated, output directory set). This function depends on the global _PB object for font registration (must be available). Only the cover page is rendered; the pages themselves are not drawn (this implementation is limited to cover generation).
-    """
-    with _LOCK:
-        title = _BOOK.get("title", "Picture Book")
-        out_dir = _BOOK.get("output_dir", "output")
-        pages = dict(_BOOK.get("pages", {}))
-    if not pages:
-        return "[ERROR] No pages — generate the book first."
-    try:
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import cm
-        from reportlab.pdfgen import canvas as _canvas
-    except Exception:
-        return "[ERROR] reportlab is not installed (pip install reportlab Pillow)."
-    font, font_bold = _PB.register_fonts()    # CJK-capable when available
-    pw, ph = A4
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, filename if filename.endswith(".pdf") else filename + ".pdf")
-    try:
-        c = _canvas.Canvas(path, pagesize=A4)
-        c.setTitle(title)
-        # ── cover: warm gradient, framed, CJK-aware wrapped title ──
-        steps = 40
-        for i in range(steps):
-            t = i / steps
-            c.setFillColorRGB(1.0, (0xF0 + (0xC0 - 0xF0) * t) / 255,
-                              (0xD0 + (0x80 - 0xD0) * t) / 255)
-            c.rect(0, ph - (i + 1) * ph / steps, pw, ph / steps + 1, fill=1, stroke=0)
-        for y_pos in (ph - 0.5 * cm, 0.5 * cm):
-            c.setStrokeColor(colors.HexColor("#B8860B")); c.setLineWidth(2)
-            c.line(1.5 * cm, y_pos, pw - 1.5 * cm, y_pos)
-        c.setFillColor(colors.HexColor("#3D2B1F"))
-        fs, max_w = 36, pw - 4 * cm
-        c.setFont(font_bold, fs)
-        tlines = _PB.wrap_text(c, title, font_bold, fs, max_w, max_lines=6)
-        line_h = fs * 1.4
-        start_y = ph / 2 + (len(tlines) * line_h) / 2 - line_h * 0.3
-        for i, ln in enumerate(tlines):
-            lw = c.stringWidth(ln, font_bold, fs)
-            c.drawString((pw - lw) / 2, start_y - i * line_h, ln)
-        subtitle = "绘本故事" if _PB.has_cjk(title) else "A Picture Book"
-        c.setFont(font, 11); c.setFillColor(colors.HexColor("#7A5C3A"))
-        sw = c.stringWidth(subtitle, font, 11)
-        c.drawString((pw - sw) / 2, start_y - len(tlines) * line_h - 0.7 * cm, subtitle)
-        c.showPage()
-        # ── story pages, in order: full-bleed image + wrapped caption bar ──
-        for n in sorted(pages):
-            spec = pages[n]
-            img = spec.get("image_path")
-            if img and os.path.isfile(img):
-                try:
-                    _PB.draw_full_bleed(c, img, pw, ph)
-                except Exception:
-                    pass
-            bar_h, pad_x = ph * 0.20, 1.5 * cm
-            c.saveState()
-            c.setFillColor(colors.Color(0, 0, 0, alpha=0.58))
-            c.rect(0, 0, pw, bar_h, fill=1, stroke=0)
-            c.restoreState()
-            c.setStrokeColor(colors.HexColor("#C8A84B")); c.setLineWidth(1.2)
-            c.line(pad_x, bar_h, pw - pad_x, bar_h)
-            c.setFillColor(colors.white)
-            size, line_h = 18, 26
-            clines = _PB.wrap_text(c, spec.get("sentence", ""), font_bold, size,
-                                   pw - 2 * pad_x, max_lines=3)
-            c.setFont(font_bold, size)
-            top = bar_h - 1.1 * cm - size
-            for i, ln in enumerate(clines):
-                lw = c.stringWidth(ln, font_bold, size)
-                c.drawString((pw - lw) / 2, top - i * line_h, ln)
-            c.setFont(font, 9); c.setFillColor(colors.HexColor("#BBBBBB"))
-            c.drawRightString(pw - pad_x, 0.4 * cm, str(n))
-            c.showPage()
-        c.save()
-    except Exception as e:
-        return f"[ERROR] PDF assembly failed: {e}"
-    return f"Saved picture book to {path} ({len(pages)} pages)."
 
 
 @tool
@@ -463,3 +530,5 @@ def book_status() -> str:
         done = sum(1 for p in pages.values() if p.get("image_path"))
         return (f"'{_BOOK.get('title')}' ({_BOOK.get('language')}): {len(pages)} pages, "
                 f"{done} illustrated, char-ref={'yes' if _BOOK.get('char_ref_path') else 'no'}.")
+
+
