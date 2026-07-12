@@ -1,0 +1,37 @@
+# ── 闭源核心:绝不进公开仓(源码留在私有仓/本地) ──
+graph_model.py
+graph_codegen.py
+codegen.py
+patterns.py
+estimation.py
+designer_agent.py
+design_assistant.py
+coding_agent.py
+
+# ── 编译产物 / 备份 ──
+*.pyd
+*.pyi
+release/_py_backup/
+
+# ── 构建 / 打包中间产物 ──
+build/
+dist/
+build-venv/
+*.spec.bak
+
+# ── Python 常规忽略 ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# ── 本地配置 / 密钥(含 API key,绝不上传) ──
+config.json
+**/config.json
+*.env
+
+# ── 运行时产物 ──
+sessions/
+traces/
+article_images/

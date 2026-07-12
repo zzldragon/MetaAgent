@@ -1,0 +1,8 @@
+# Test/dev dependencies for MetaAgent.
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   pytest tests/
+pytest>=8.0
+# Per-test wall-clock cap so a hung test is reported BY NAME (with a stack dump)
+# instead of blocking the whole run. Configured in pytest.ini (timeout=300,
+# timeout_method=thread — thread is required on Windows; SIGALRM is Unix-only).
+pytest-timeout>=2.3

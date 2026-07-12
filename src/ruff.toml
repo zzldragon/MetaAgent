@@ -1,0 +1,18 @@
+# Ruff config for MetaAgent (mirrors the workspace convention).
+line-length = 100
+
+# Vendored build environments / generated output are not ours to lint.
+extend-exclude = ["generated_agents"]
+
+[lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Qt override methods (boundingRect, paint, mousePressEvent, keyPressEvent, …)
+# must use the camelCase names Qt defines — that's an API contract, not style.
+"canvas_qt/**" = ["N802"]
+"designer_qt.py" = ["N802"]
+"prototype/**" = ["N802"]
+# Test modules alias packages for brevity (dialogs as D, welcome as W, …).
+"test/**" = ["N802", "N812"]

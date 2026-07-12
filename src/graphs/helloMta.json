@@ -1,0 +1,114 @@
+{
+  "nodes": [
+    {
+      "id": "agent_1",
+      "kind": "agent",
+      "name": "agent",
+      "x": -175,
+      "y": -5,
+      "props": {
+        "role": "single",
+        "route_self": false,
+        "quick_response": false,
+        "reads": [],
+        "writes": [],
+        "require_writes": false,
+        "guardrails": {},
+        "enable_todos": false,
+        "mode_label": "",
+        "code_exec": false,
+        "code_exec_backend": "subprocess",
+        "code_exec_timeout": 30,
+        "code_exec_memory_mb": 512,
+        "code_exec_image": "python:3.11-slim",
+        "web_search": false,
+        "offload_results": false,
+        "adaptive_retrieval": false,
+        "groundedness_check": false,
+        "max_regen": 1,
+        "max_rpm": 0,
+        "stage_retries": 0,
+        "max_budget_usd": 0,
+        "final_schema": "",
+        "final_schema_retries": 2,
+        "hitl_review": false,
+        "hitl_on_reject": "stop",
+        "hitl_triggers": [
+          "high_risk_tool"
+        ],
+        "hitl_confidence_threshold": 0.6,
+        "hitl_decisions": [
+          "approve",
+          "edit",
+          "reject"
+        ],
+        "hitl_timeout": 0,
+        "hitl_on_timeout": "approve",
+        "max_iterations": 0,
+        "max_tool_calls": 0,
+        "max_output_tokens": 0,
+        "max_wall_clock_s": 0
+      }
+    },
+    {
+      "id": "llm_2",
+      "kind": "llm",
+      "name": "llm_agent",
+      "x": -176,
+      "y": -159,
+      "props": {
+        "provider": "siliconflow",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "api_key": "",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "temperature": "0.3",
+        "top_p": "",
+        "response_format": "text",
+        "response_schema": "",
+        "parallel_tools": false,
+        "request_timeout_s": 120,
+        "proxy": "",
+        "vision": false,
+        "context_capacity": 0,
+        "stop": "",
+        "seed": "",
+        "presence_penalty": "",
+        "frequency_penalty": "",
+        "top_k": "",
+        "reasoning_effort": "",
+        "max_retries": "",
+        "tool_choice": "auto",
+        "tool_choice_name": "",
+        "price_in_per_1m": "",
+        "price_out_per_1m": "",
+        "extra": ""
+      }
+    },
+    {
+      "id": "prompt_3",
+      "kind": "prompt",
+      "name": "prompt_agent",
+      "x": -409,
+      "y": -3,
+      "props": {
+        "role": "single",
+        "text": "You are a chatbot, respond according to what user inputs"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "src": "llm_2",
+      "dst": "agent_1",
+      "props": {}
+    },
+    {
+      "src": "prompt_3",
+      "dst": "agent_1",
+      "props": {}
+    }
+  ],
+  "state_schema": [],
+  "recursion_limit": 0,
+  "storage": {}
+}

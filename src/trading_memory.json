@@ -1,0 +1,14 @@
+[
+  {
+    "ticker": "601318",
+    "date": "2025-04-10",
+    "decision": "HOLD — No trade. All four upstream reports empty. Cannot manage risk that cannot be measured. Conditional buy plan prepared: execute when fundamentals_report + market_report arrive and confirm P/EV ≤ 0.6x with decelerating NBV decline.",
+    "recorded_at": "2026-07-09"
+  },
+  {
+    "ticker": "601318",
+    "date": "2025-04-14",
+    "decision": "HOLD — No trade. All four upstream reports still empty. Aggressive 0.5% starter rejected (no data to size risk). Conservative absolutism softened to minimum viable dataset (fundamentals + market reports). Neutral conditional framework adopted unchanged. Await data before any action.",
+    "recorded_at": "2026-07-09"
+  }
+]

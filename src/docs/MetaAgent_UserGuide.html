@@ -1,0 +1,1253 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>MetaAgent User Guide</title><style>
+:root{--fg:#1b1f24;--muted:#5b6470;--bg:#ffffff;--code:#f5f7fa;--border:#e2e6eb;
+--accent:#1565C0;--warnbg:#fff8e1;--warnbd:#f4c430;}
+@media (prefers-color-scheme:dark){:root{--fg:#e6e6e6;--muted:#9aa0a6;--bg:#1e1f24;
+--code:#26272e;--border:#34363f;--accent:#64B5F6;--warnbg:#332b12;--warnbd:#8a6d1a;}}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--fg);
+background:var(--bg);max-width:960px;margin:0 auto;padding:40px 24px 96px;
+line-height:1.6;font-size:16px}
+h1,h2,h3,h4{line-height:1.25;font-weight:700;margin:1.6em 0 .5em}
+h1{font-size:2em;border-bottom:2px solid var(--border);padding-bottom:.3em}
+h2{font-size:1.5em;border-bottom:1px solid var(--border);padding-bottom:.25em;margin-top:2em}
+h3{font-size:1.2em} h4{font-size:1.05em;color:var(--muted)}
+a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+code{background:var(--code);border:1px solid var(--border);border-radius:5px;
+padding:.1em .35em;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:.88em}
+pre{background:var(--code);border:1px solid var(--border);border-radius:8px;
+padding:14px 16px;overflow:auto} pre code{background:none;border:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:1em 0;display:block;overflow:auto}
+th,td{border:1px solid var(--border);padding:7px 11px;text-align:left;vertical-align:top}
+th{background:var(--code)} tr:nth-child(even) td{background:rgba(127,127,127,.05)}
+blockquote{margin:1em 0;padding:.6em 1em;background:var(--warnbg);
+border-left:4px solid var(--warnbd);border-radius:0 6px 6px 0}
+blockquote p{margin:.3em 0}
+hr{border:none;border-top:1px solid var(--border);margin:2.4em 0}
+.imgph{color:var(--muted);font-style:italic;background:var(--code);
+border:1px dashed var(--border);border-radius:6px;padding:10px 14px;text-align:center}
+ul,ol{padding-left:1.5em} li{margin:.25em 0}
+img{max-width:100%;height:auto;display:block;margin:1em auto;border:1px solid var(--border);border-radius:8px}
+</style></head><body><h1 id="metaagent-user-guide">MetaAgent User Guide</h1>
+<p><em>Build AI agents on a visual canvas. Generate standalone Python. No LangChain.</em></p>
+<hr>
+<h2 id="1-what-is-metaagent">1. What is MetaAgent</h2>
+<p>MetaAgent is a desktop app (PySide6/Qt) where you <strong>draw</strong> an AI agent — or a whole team of agents — as a node graph, then press <strong>Generate Code</strong> to compile that graph into a self-contained Python folder you can run, ship, or compile to an <code>.exe</code>. You wire <strong>agents</strong> to the <strong>resources</strong> they consume (an LLM, tools, a prompt persona, skills, RAG docs, MCP servers) and the <strong>control-flow</strong> nodes that route between them (routers, If/Else conditions, set-state, human checkpoints). The compiler reads your graph, validates it, and emits a plain <code>agent.py</code> plus <code>config.json</code>, <code>requirements.txt</code>, <code>build.bat</code>, and a README.</p>
+<p>The big idea: <strong>canvas → standalone Python, with zero LangChain at runtime.</strong> Tool files are inlined verbatim, the ReAct loop is hand-written, and the LLM is called through the <code>openai</code>/<code>anthropic</code> SDKs directly. The default backend is <strong>DeepSeek-V4-Flash via SiliconFlow</strong>. Generated agents depend on essentially just <code>openai</code> and <code>anthropic</code> (plus whatever your tools import) — they are small, readable, and have no framework to keep up to date.</p>
+<hr>
+<h2 id="2-core-concepts">2. Core concepts</h2>
+<h3 id="node-kinds">Node kinds</h3>
+<p>There are 24 node kinds. Agent-stage nodes are the "stages" in your pipeline; resource nodes feed <em>into</em> an agent; control nodes sit <em>in</em> the flow with no LLM; a <strong>subgraph</strong> node embeds a whole other graph as one composite step; and a few nodes emit frontends or tests.</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Label</th>
+<th>Role</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agent</code></td>
+<td>Agent</td>
+<td>stage</td>
+<td>One ReAct agent. Has a role, budgets, reads/writes.</td>
+</tr>
+<tr>
+<td><code>workerpool</code></td>
+<td>Worker Pool</td>
+<td>stage</td>
+<td>Like an agent but runs N parallel workers (<code>max_workers</code>, default 4).</td>
+</tr>
+<tr>
+<td><code>router</code></td>
+<td>Router</td>
+<td>stage</td>
+<td>Uses an LLM to pick <strong>one</strong> successor at runtime.</td>
+</tr>
+<tr>
+<td><code>llm</code></td>
+<td>LLM</td>
+<td>resource → agent</td>
+<td>Assigns the model. First link = primary, extras = fallbacks.</td>
+</tr>
+<tr>
+<td><code>tool</code></td>
+<td>Tools</td>
+<td>resource → agent</td>
+<td>Attaches every <code>@tool</code> function in the node's <code>.py</code> files.</td>
+</tr>
+<tr>
+<td><code>skill</code></td>
+<td>Skills</td>
+<td>resource → agent</td>
+<td>Appends skill text to the system prompt.</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>Prompt</td>
+<td>resource → agent</td>
+<td>Sets the agent's persona (<strong>max 1</strong>).</td>
+</tr>
+<tr>
+<td><code>rag</code></td>
+<td>RAG</td>
+<td>resource → agent</td>
+<td>Gives the agent a <code>search_&lt;kb&gt;</code> retrieval tool (BM25 by default; configurable — see §6). <strong>Multiple RAG nodes per agent OK</strong> — each becomes its own tool and the agent picks by description.</td>
+</tr>
+<tr>
+<td><code>memory</code></td>
+<td>Memory</td>
+<td>resource → agent</td>
+<td>Gives the agent <strong><code>remember(content, tags)</code></strong> + <strong><code>recall(query)</code></strong> tools backed by a <strong>persistent</strong> store (<code>memory_store.json</code>) + BM25 retrieval. Survives restarts, so the agent <strong>learns across runs</strong> (Reflexion-style): recall past lessons before acting, remember new ones after. <code>top_k</code> = default recall size.</td>
+</tr>
+<tr>
+<td><code>mcp</code></td>
+<td>MCP</td>
+<td>resource → agent</td>
+<td>Connects an external MCP server; tools discovered at runtime (multiple OK).</td>
+</tr>
+<tr>
+<td><code>condition</code></td>
+<td>If/Else</td>
+<td>control</td>
+<td>The diamond. Routes to a branch by a safe expression over state.</td>
+</tr>
+<tr>
+<td><code>while</code></td>
+<td>While</td>
+<td>control</td>
+<td>A diamond loop guard: run the <em>body</em> successor while a condition holds, else take the <em>exit</em> successor. Compiles to the same routing primitive as If/Else.</td>
+</tr>
+<tr>
+<td><code>foreach</code></td>
+<td>For-Each</td>
+<td>control</td>
+<td>A diamond <strong>map-over-list</strong>: runs its <em>body</em> successor <strong>once per item</strong> of a shared-state <strong>list</strong> field (<code>over</code>), the items running <strong>in parallel</strong> on isolated state forks (a dynamic fan-out). Each item is passed to the body <strong>both</strong> as its input <strong>and</strong>, when <code>item_var</code> is set, written to that state field; the body must link <strong>back</strong> to the For-Each node, and the OTHER outgoing link is the <em>exit</em> (taken once, after every item). Optional <code>result_field</code> collects each item's output into a list; <code>merge</code> combines the outputs (concat/first/last/state_only/vote); <code>max_parallel</code> caps concurrency (0 = all at once). The list is produced upstream (an agent write or a Set-State).</td>
+</tr>
+<tr>
+<td><code>setstate</code></td>
+<td>Set State</td>
+<td>control</td>
+<td>Writes shared state directly (literals or <code>=expr</code>).</td>
+</tr>
+<tr>
+<td><code>guardrail</code></td>
+<td>Guardrail</td>
+<td>control</td>
+<td>An inline content gate: redacts or blocks the content flowing through it. Checks for <strong>secrets / PII / prompt-injection</strong>; <code>on_trip</code> = <em>redact</em> or <em>block</em> (injection always blocks). See §11.</td>
+</tr>
+<tr>
+<td><code>end</code></td>
+<td>End</td>
+<td>control</td>
+<td>A terminal <strong>sink</strong> (no outgoing links). When the flow reaches it the run <strong>finishes early</strong>, returning whatever output was carried in. Use it on an If/Else branch or While exit to stop before the rest of the pipeline.</td>
+</tr>
+<tr>
+<td><code>fanout</code></td>
+<td>Fan-out</td>
+<td>control</td>
+<td>Runs its <strong>2+ branches CONCURRENTLY</strong> (real threads), then reconverges at the paired Join. Each branch is an independent agent chain (may include Set-State). <code>max_parallel</code> caps concurrency (0 = unbounded).</td>
+</tr>
+<tr>
+<td><code>join</code></td>
+<td>Join</td>
+<td>control</td>
+<td>The barrier that reconverges a Fan-out's branches. Their shared-state writes are merged via each field's reducer (concurrent writes to one <code>overwrite</code> field are rejected — use append/add/max/min). <code>merge</code> = how the branch <em>output text</em> combines (concat / first / last / state_only / <strong>vote</strong> = the majority branch output, ties → first, for self-consistency on a label/number).</td>
+</tr>
+<tr>
+<td><code>hitl</code></td>
+<td>HITL</td>
+<td>flow gate / branch</td>
+<td>A human checkpoint. With <strong>one</strong> outgoing link it's a review <strong>gate</strong> (approve / edit / reject before the next stage). With <strong>2+</strong> outgoing links it's a <strong>human-driven branch</strong> (route mode): the reviewer picks which successor runs next — the human mirror of a Router.</td>
+</tr>
+<tr>
+<td><code>webserver</code></td>
+<td>WebServer</td>
+<td>output</td>
+<td>Emits <code>server.py</code> (websocket + web UI). Standalone, one per graph.</td>
+</tr>
+<tr>
+<td><code>gui</code></td>
+<td>GUI</td>
+<td>output</td>
+<td>Emits <code>gui.py</code> (desktop chat) when linked to the entry agent — built-in window, or your own custom <code>gui.py</code> (Extra Settings).</td>
+</tr>
+<tr>
+<td><code>schedule</code></td>
+<td>Schedule</td>
+<td>output</td>
+<td>Emits <code>scheduler.py</code> when linked to the entry agent — an <strong>ambient</strong> runner that calls the agent every <code>every_seconds</code> with a preset task (no user prompt). Pick a <strong>Strategy</strong>: <strong>Periodic</strong> (<code>every_seconds</code> + <code>offset_seconds</code> + <code>run_at_start</code>), <strong>Daily</strong> (<code>at</code> = local <code>HH:MM[:SS]</code>), or <strong>Once</strong> (<code>start_at</code> = exact <code>YYYY-MM-DD HH:MM[:SS]</code>) — mutually exclusive (the others' fields grey out). Plus task, <code>max_runs</code>, <code>session_id</code>. <strong>Multiple allowed</strong> — each Schedule node is an independent <strong>concurrent</strong> job over the agent.</td>
+</tr>
+<tr>
+<td><code>eval</code></td>
+<td>Eval</td>
+<td>testing</td>
+<td>A graded test set for one agent or the whole pipeline.</td>
+</tr>
+<tr>
+<td><code>subgraph</code></td>
+<td>Subgraph</td>
+<td>composition</td>
+<td>Embeds another whole graph as <strong>one composite step</strong>. Its incoming edge feeds the child's entry agent; the child's End (or last stage) continues to this node's successor. The child is stored <strong>inline</strong> (<strong>Load .mta…</strong> in the dialog) so the parent stays self-contained, and is <strong>flattened in</strong> at generation (<code>expand_subgraphs</code>) with child node names namespaced <code>sub/name</code>; the child's tools/prompts/LLMs come along and its shared-state fields merge into the parent's. Reuse a validated sub-pipeline, or collapse a big graph into readable pieces. Nested subgraphs flatten first; a recursive include is rejected.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Node shapes.</strong> On the canvas a node's <strong>shape tells you its role at a glance</strong>, while its <strong>colour identifies the exact kind</strong>. The silhouettes: <strong>rounded rectangle</strong> = an actor (agent — a worker pool is drawn <em>stacked</em>; a <strong>subgraph</strong> is a rectangle too, since it acts as a composite stage); <strong>diamond</strong> = a decision/branch (router, If/Else, While, For-Each); <strong>cylinder</strong> = a knowledge store (RAG); <strong>document</strong> (wavy foot) = text/instructions (prompt, skill); <strong>hexagon</strong> = a compute engine (LLM, eval); <strong>parallelogram</strong> = a capability or I/O (tools, MCP, Set State); <strong>octagon</strong> = a gate/checkpoint (guardrail, HITL); <strong>trapezoid</strong> = an interface/output (web server, GUI); <strong>stadium</strong> (a pill with rounded ends) = a terminal (End). The <strong>Add module</strong> palette draws each button with its silhouette, so it doubles as a legend.</p>
+<h3 id="agent-roles">Agent roles</h3>
+<p>Every <code>agent</code>/<code>workerpool</code> node has a <strong>role</strong> (the Agent dialog's dropdown) that sets its default persona (prompt template) and how it behaves in a pattern. The six roles:</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Behavior</th>
+<th>Typical use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>single</code></td>
+<td>A general ReAct agent (the default) — runs alone or as one chain stage.</td>
+<td>Any standalone agent.</td>
+</tr>
+<tr>
+<td><code>planner</code></td>
+<td>Breaks the task into a numbered plan for the next agent; doesn't execute. May <strong>self-route</strong> (<code>route_self</code>, planner-only, needs 2+ outgoing links).</td>
+<td>Planner–executor; Adaptive-RAG router.</td>
+</tr>
+<tr>
+<td><code>worker</code></td>
+<td>Executes the task (and the plan, if given) thoroughly and reports. Tool-eligible.</td>
+<td>The "doer" in most patterns.</td>
+</tr>
+<tr>
+<td><code>critic</code></td>
+<td>Reviews the previous agent's output; can send it back by starting its reply with <code>REVISE:</code> (a bounded revise loop).</td>
+<td>Planner–executor–critic.</td>
+</tr>
+<tr>
+<td><code>supervisor</code></td>
+<td>Delegates one instruction at a time to its workers (NEXT/DONE), reviewing each result. <strong>Entry-only</strong>; workers must be leaves.</td>
+<td>Supervisor–worker.</td>
+</tr>
+<tr>
+<td><code>orchestrator</code></td>
+<td>Spawns isolated sub-agents in parallel via the built-in <code>spawn_subagent</code> tool; each runs with only its own tools and returns just its result. <strong>Entry-only</strong>; sub-agents are linked leaves.</td>
+<td>Autonomous orchestration.</td>
+</tr>
+</tbody>
+</table>
+<p>(The <code>router</code> "role" comes from the <strong>Router node kind</strong>, not this dropdown.) The Agent dialog greys out fields that don't apply to the chosen role (e.g. routing fields are planner-only).</p>
+<p><strong>Dependency-aware Worker Pool (DAG).</strong> Turn on <strong>"Emit a typed dependency plan"</strong> (<code>structured_plan</code>) on a <strong>Planner</strong> and <strong>"Dependency-aware execution"</strong> (<code>dag_plan</code>) on a downstream <strong>Worker Pool</strong>: the planner appends a small typed plan — a list of <code>{id, subgoal, depends_on}</code> — and the pool runs it as a DAG, so independent subgoals run in parallel (up to <code>max_workers</code>) while each dependent waits for its prerequisites and receives their outputs as context. One subgoal failing doesn't sink the batch. If the plan is missing, malformed, or cyclic the pool safely falls back to splitting the work flatly (no behaviour change). Enabling the planner option with no matching pool downstream raises an <strong>Analyze</strong> warning.</p>
+<h3 id="links-meaning-depends-on-the-endpoints">Links: meaning depends on the endpoints</h3>
+<p>A link's meaning is entirely about what it connects:</p>
+<ul>
+<li><strong>resource → agent</strong> <em>feeds</em> the agent: <code>llm→agent</code> assigns a model, <code>tool→agent</code> attaches functions, <code>prompt→agent</code> sets persona, <code>skill→agent</code> adds guidance, <code>rag→agent</code> adds <code>search_docs</code>, <code>mcp→agent</code> connects a server.</li>
+<li><strong>agent → agent</strong> is <em>control flow</em>: "the left agent's output flows to the right agent." A <strong>back-edge</strong> (to an earlier stage) is a revise loop, painted red.</li>
+</ul>
+<p>You link by dragging from a node's blue right-port ● onto a target. <code>ALLOWED_EDGES</code> enforces what can connect; <code>SINGLETON_INPUTS</code> caps <code>prompt</code>/<code>gui</code> to one per agent (RAG is no longer capped — link several). Self-links and duplicate links are rejected, as is a second Tools node bringing the <em>same</em> <code>.py</code> file to one agent.</p>
+<blockquote>
+<p><strong>⚠ Maintenance rule — any change to the canvas must update the built-in knowledge in the same commit.</strong>
+The Estimation / design-assistant feature ships an embedded description of the canvas that the LLM reasons from. Whenever you change the canvas <em>vocabulary or semantics</em> — a node kind in <code>KIND_META</code>, a role in <code>ROLE_DEFAULT_PROMPTS</code>, a pattern in <code>PATTERNS</code>, an edge rule in <code>ALLOWED_EDGES</code>/<code>SINGLETON_INPUTS</code>, a <code>STATE_TYPES</code> entry, default budgets, or a validity rule in <code>analyze()</code> — you <strong>must</strong> mirror it in <strong><code>design_assistant.py</code></strong> (<code>KIND_DESC</code>, <code>ROLE_SEMANTICS</code>, <code>EDGE_SEMANTICS</code>, <code>CANVAS_RULES</code>, <code>CANVAS_DESIGN</code>, and the pattern topologies) <strong>and</strong> in the node/link tables in <em>this</em> document. The <em>enumerable</em> parts are guarded by <code>tests/_verify_design_assistant.py</code> (it fails if <code>KIND_DESC</code> / <code>ROLE_SEMANTICS</code> don't cover the registries); the <em>prose</em> (design narrative, rules, edge semantics) and this doc's tables are <strong>not</strong> machine-checkable, so update them by hand. Rule of thumb: <strong>if you change what the canvas can do, update the knowledge alongside it — otherwise the assistant gives outdated answers.</strong></p>
+</blockquote>
+<p><strong>Link contracts (double-click a link).</strong> A link can carry a contract, shown as a badge on the line and edited by double-clicking it (or right-click → <em>Configure link…</em>):
+- <strong>agent → agent — a data-handoff contract.</strong> Declare the fields the upstream produces = the downstream consumes (each a name, type, description — like a shared-state field, but scoped to this one link). At generation it's written into <strong>both</strong> system prompts: the producer is told to <em>output</em> those fields, the consumer to <em>expect</em> them. (Routers don't carry a contract — they forward text and pick a branch, they don't reshape data.)
+  - <strong>Advisory (default):</strong> it shapes the prompts only — the data still flows as the previous agent's output text.
+  - <strong>Validate &amp; retry (opt-in checkbox on the link):</strong> the producer must reply with a <strong>JSON object</strong> of exactly those fields; the runtime <strong>validates</strong> it (all fields present + right type) and, on a mismatch, <strong>re-runs the producer</strong> with the specific error (bounded by <em>max retries</em>, default 2). If it still fails, the <strong>run stops</strong> with <code>[contract not met]</code> rather than passing invalid data on. Works in both chain and graph mode.
+- <strong>If/Else → target — the branch predicate.</strong> Set the expression that routes to this link (empty = the else/fallback). It writes to the If/Else node's branch list (the single source of truth), so the node's own dialog and the link stay in sync.
+- <strong>While → target — loop body or exit.</strong> Mark which link is the loop body (runs while the condition holds, must loop back) and which is the exit.</p>
+<blockquote>
+<p><strong>Branching rule:</strong> a plain agent or pool may have <strong>at most one</strong> outgoing flow link. To pick <strong>one</strong> branch at runtime, use a Router (LLM picks), a <strong>routing HITL</strong> (a <em>human</em> picks — draw 2+ links out of a HITL node), a Supervisor, an Orchestrator, a self-routing Planner (<code>role=planner</code> + <code>route_self</code> + 2+ links), or route into a single If/Else node. To run branches <strong>in parallel</strong> (all of them, concurrently) use a <strong>Fan-out → branches → Join</strong>. A second outgoing edge from a plain agent is a generation error.</p>
+</blockquote>
+<h3 id="the-four-runtime-modes">The four runtime modes</h3>
+<p>At generation time <code>analyze()</code> inspects the graph and picks one mode from the <strong>entry agent's role</strong> and the presence of routers/conditions. The entry agent is the one with no incoming flow link.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Chosen when</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>chain</strong></td>
+<td>default — linear pipeline</td>
+<td>Agents run in order; optional single revise back-edge.</td>
+</tr>
+<tr>
+<td><strong>graph</strong></td>
+<td>any Router, self-routing planner, or any control node — Condition, While, Set-State, Guardrail, End, or Fan-out/Join — present (and entry is not supervisor/orchestrator)</td>
+<td>BFS walk with runtime routing, bounded while-loops, and concurrent fan-out branches.</td>
+</tr>
+<tr>
+<td><strong>supervisor</strong></td>
+<td>entry role = <code>supervisor</code></td>
+<td>Star delegation loop (NEXT/DONE); workers must be leaves.</td>
+</tr>
+<tr>
+<td><strong>autonomous</strong></td>
+<td>entry role = <code>orchestrator</code></td>
+<td>Orchestrator spawns isolated sub-agents in parallel.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key runtime fact:</strong> in chain, graph, and supervisor modes the generated agents <strong>do not call each other</strong>. A driver loop (<code>run_pipeline</code> / <code>run_graph</code> / <code>run_supervisor</code>) sequences the stages, runs each agent's own ReAct loop in isolation, and passes the previous stage's output forward as plain text plus a read-only shared-state preamble. The only exceptions are routers/self-routing planners (the built-in <code>route_to</code> tool picks the next branch) and the orchestrator (the built-in <code>spawn_subagent</code> tool launches sub-agents).</p>
+<h3 id="canvas-editing">Canvas editing</h3>
+<ul>
+<li><strong>Move / multi-select:</strong> drag a node to move it. <strong>Drag empty space</strong> to box-select several (rubber-band), then drag any of them to <strong>move the group</strong>. <code>Ctrl+A</code> selects all.</li>
+<li><strong>Copy / paste:</strong> <code>Ctrl+C</code> / <code>Ctrl+V</code> duplicates the selected node(s) with their full configuration — fresh ids, unique names, offset; links <em>between</em> copied nodes are re-created. Works across canvas windows.</li>
+<li><strong>Link / pan:</strong> drag from a node's right port ● to link; <strong>middle-drag</strong> to pan; wheel to zoom; double-click to configure; <code>Del</code> to delete.</li>
+<li><strong>Undo / redo:</strong> <code>Ctrl+Z</code> undoes the last canvas action (add / delete / move / link / configure / paste …); <code>Ctrl+Y</code> (or <code>Ctrl+Shift+Z</code>) redoes it. Also on the <strong>Edit</strong> menu. History resets when you start a new project or load a graph.</li>
+<li><strong>Built-in tools on the node:</strong> each agent-like node shows a strip of its built-in tools (<code>route</code>, <code>spawn</code>, <code>todos</code>, <code>python</code>, <code>web</code>, <code>offload</code>) — <strong>green</strong> = provided now, <strong>faint</strong> = available to enable. Hover for names + descriptions.</li>
+<li><strong>Check Code (VB-style code-behind):</strong> <strong>right-click</strong> a node → <strong>Check Code</strong> to see the real generated <code>agent.py</code> (and <code>config.json</code>) with <em>that node's</em> contributed regions <strong>highlighted</strong> — the agent's persona and topology entry, a tool's inlined function, an LLM's <code>config.json</code> block, a condition/setstate branch, etc. It generates the app to a temp folder, locates each region by anchor search (no template changes, so generation stays byte-identical), and opens a read-only, resizable viewer that scrolls to the first region. The un-highlighted remainder is the shared runtime, which belongs to no single node. Double-click still means <em>Configure</em>; Check Code is a separate, non-destructive view.</li>
+<li><strong>Config windows</strong> are resizable and have <strong>maximize/restore</strong> buttons + a grip. The <strong>Agent</strong> dialog groups fields into collapsible <code>+/−</code> sections (Planner &amp; routing · Capabilities &amp; tools · Retrieval &amp; answer quality · Budgets · Guardrails · <strong>Extra Settings</strong> · <strong>Structured final answer</strong>), and <strong>greys out</strong> fields that don't apply to the selected role (e.g. routing fields are planner-only) with a tooltip explaining why.</li>
+<li><strong>Extra Settings (power-user knobs; blank = today's default).</strong> Collapsed <strong>Extra Settings</strong> groups expose advanced, opt-in per-node config — every field defaults to current behaviour, so leaving them blank changes nothing. <em>(Full how-to, with values and worked examples per node, in <a href="#15-extra-settings-reference-advanced-per-node-knobs">§15</a>.)</em><ul>
+<li><strong>LLM node:</strong> reasoning effort, seed, top-k, presence/frequency penalty, stop sequences, <code>max_retries</code>, first-turn <code>tool_choice</code> (auto/any/none/specific), input/output <strong>prices</strong> ($/1M tok, which enable an agent's cost cap), and a raw-JSON escape hatch.</li>
+<li><strong>Agent / Worker:</strong> <code>mode_label</code> (multi-pattern <code>/mode</code>), <strong>max requests/min</strong> (rate limit), <strong>stage retries</strong> (re-run a stage on a transient error), <strong>max budget ($)</strong> (abort when estimated cost hits the cap — needs the LLM's prices set), <strong>on budget exceeded</strong> (<code>continue</code>/<code>stop</code>/<code>retry</code> — what to do when this stage hits any budget cap; see §3 step 6), and a <strong>Structured final answer</strong> JSON-Schema (validates + re-asks, then returns clean JSON).</li>
+<li><strong>Eval node:</strong> the full grader registry (contains/equals/regex/numeric/similar/length/is-JSON/JSON-has-keys/starts-with/ends-with/… + a <em>negate</em> and <em>case-sensitive</em> toggle), not just contains/regex/judge.</li>
+<li><strong>Tool node</strong> (a per-function table): <strong>return-direct</strong> (the tool's output becomes the final answer), <strong>on-error</strong> policy (return to the model / retry N / raise-abort), a <strong>risk</strong> override (force high/safe, overriding the tool's own declaration), and a per-agent <strong>description</strong> override.</li>
+<li><strong>HITL node:</strong> which <strong>decisions</strong> the reviewer may take (approve / edit / reject) and an unattended <strong>timeout</strong> + auto-decision (approve/reject if no one answers in N seconds).</li>
+<li><strong>Guardrail node:</strong> custom <strong>regex patterns</strong> and <strong>keywords</strong> to redact or block, and a <strong>max-length</strong> cap that truncates overflow.</li>
+<li><strong>RAG node:</strong> a <strong>score threshold</strong> (drop low-relevance chunks — dense/cross-encoder only), a <strong>source filter</strong> (glob, e.g. <code>*.md</code>), and <strong>multi-query</strong> expansion (search N LLM-generated variants and fuse).</li>
+<li><strong>MCP node:</strong> per-server tool <strong>allow/deny lists</strong>, <strong>connect/call timeouts</strong>, and <strong>env vars</strong> (stdio) / <strong>headers</strong> (http/sse, e.g. <code>Authorization</code>).</li>
+<li><strong>While node:</strong> a per-loop <strong>max iterations</strong> cap (independent of the graph recursion limit).</li>
+<li><strong>Router node:</strong> a <strong>default/tie-break branch</strong> and a <strong>routing-LLM override</strong> (use a cheaper model just for the routing decision).</li>
+<li><strong>WebServer node:</strong> <strong>TLS</strong> (wss), <strong>CORS</strong> allowed origins, <strong>max connections</strong>, and <strong>auto-approve tools</strong> (headless, no HITL prompt).</li>
+<li><strong>GUI node:</strong> a <strong>custom <code>gui.py</code></strong> — replace the built-in chat window with your own single-file front-end (Choose a <code>.py</code>, or "Use built-in" to revert). It must <code>import agent</code> and call <code>agent.run(...)</code>; any <code>@AGENT_NAME@</code> in the file is filled in on generate. The designer flags a syntax error and warns if the file never runs the agent.</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="3-quick-start-build-and-run-a-single-agent">3. Quick start: build and run a single agent</h2>
+<ol>
+<li><strong>Install and launch.</strong> <code>pip install -r requirements.txt</code> then <code>python main.py</code>. (Deps: PySide6 6.6+, openai 1.40+.) The welcome launcher offers New project, Open bundle, Recent, and Settings.</li>
+<li><strong>Set your key.</strong> In <strong>Settings</strong>, pick a <strong>Provider</strong> (SiliconFlow, <strong>NVIDIA <code>build.nvidia.com</code></strong>, OpenAI, DeepSeek, Gemini) to auto-fill Base URL + Model, then paste that provider's API key (e.g. <code>nvapi-…</code> for NVIDIA). The host <code>config.json</code> next to <code>main.py</code> defaults to model <code>deepseek-ai/DeepSeek-V4-Flash</code>, base_url <code>https://api.siliconflow.cn/v1</code> (no chat-completions suffix). Any OpenAI-compatible endpoint works for both the app's coding agent and generated agents.</li>
+</ol>
+<blockquote>
+<p><strong>UI language (English / 简体中文).</strong> The designer's interface is bilingual. Switch it from the welcome window's <strong>Settings → Language</strong> menu; the choice is saved in the host <code>config.json</code> (<code>language</code>) and applied across the welcome window and the canvas (menus, palette, context menus, node labels). Node-config dialogs are currently English. This is a <strong>designer-UI</strong> setting only — it does not change your agents; to make a <em>generated</em> agent reply in a given language, say so in its Prompt (the built-in Designer and coding agents already mirror the user's language).
+3. <strong>New project</strong>, then add an <strong>Agent</strong> node (palette <code>+ agent</code> button, or right-click → "Add Agent here").
+4. <strong>Add an LLM</strong> and link it: right-click the agent → <strong>Add &amp; link a module → Add LLM</strong>. This creates the node, links <code>llm→agent</code>, and opens its config (provider <code>siliconflow</code>, model <code>deepseek-ai/DeepSeek-V4-Flash</code>).
+5. <strong>Add tools (optional).</strong> Right-click the agent → <strong>Add &amp; link a module → Add Tools</strong>, then check the <code>.py</code> files you want from the <code>tools/</code> library. Or use the <strong>Tool Generator</strong> (Tools menu) to have an in-app coding agent write a new tool for you.
+6. <strong>Configure the agent.</strong> Double-click it to set its role, budgets, and HITL knobs. <strong>Budgets default to <code>0</code> = UNLIMITED</strong> (<code>max_iterations</code> / <code>max_tool_calls</code> / <code>max_output_tokens</code> / <code>max_wall_clock_s</code>) so demos run to completion out of the box — set a positive value on any of them to cap cost/runtime in production (the designer decides the real budget). <code>0</code> means: no iteration/tool-call/wall-clock limit, and no explicit output-token cap (the provider default; Anthropic keeps 8000 since it requires one). <strong>These budgets are per-STAGE</strong> (they reset each time the stage runs) and <strong>soft</strong> (checked <em>between</em> ReAct steps, never mid-call). By default a stage that hits a cap emits a <code>[budget] …</code> note that simply flows to the next stage; to make a cap actually <strong>stop or retry the run</strong>, set the agent's <strong>On budget exceeded</strong> (<code>on_budget</code>, Extra Settings) to <code>stop</code> (end the whole run there) or <code>retry</code> (re-run this stage up to its <em>stage retries</em> with a fresh budget, then stop). For a <strong>run-wide</strong> time limit that ends the <em>entire</em> run — not just one stage — set <strong>Graph → Edit Shared State → "Max run wall-clock (seconds)"</strong> (<code>run_wall_clock_s</code>); at the next step/hop boundary the run stops with a <code>[budget] Run wall-clock…</code> message. A single hung in-flight call is bounded only by the LLM node's <strong>Request timeout (s)</strong>.
+7. <strong>Generate Code.</strong> MetaAgent validates the graph and writes <code>generated_agents/&lt;name&gt;/</code> containing <code>agent.py</code>, <code>config.json</code>, <code>requirements.txt</code>, <code>build.bat</code>, <code>README.md</code>, <code>system_prompts.json</code>, and an <code>evals/</code> harness.
+8. <strong>Add your api key.</strong> Open the generated <code>config.json</code>. Each agent's LLM lives under <code>llms</code> as a list (first = primary, rest = fallbacks). Fill in <code>api_key</code>, <strong>or leave it blank to read from an environment variable</strong>.
+9. <strong>Run it.</strong>
+   - <code>python agent.py "your task"</code> — headless CLI
+   - <code>python gui.py</code> — desktop chat (only if a GUI node links the entry agent)
+   - <code>python server.py</code> then open <code>http://127.0.0.1:8765/</code> — web UI (only if a WebServer node is present)</p>
+</blockquote>
+<p>To save your work: <strong>JSON</strong> stores topology (nodes/edges/state); the portable <strong><code>.mta</code></strong> zip also embeds tool sources, prompts, and skills. To make a lean executable, use <strong>Compile</strong> (clean-venv PyInstaller onedir) rather than building by hand, or the <code>.exe</code> bloats past 200MB.</p>
+<hr>
+<h2 id="4-pattern-presets">4. Pattern presets</h2>
+<p>The <strong>Patterns</strong> menu inserts a complete preset, building each agent with its own Prompt, LLM, and — depending on the preset — a Tools node or a RAG node. Every preset ships <strong>tuned, not bare</strong>: each agent gets a purposeful per-role LLM temperature (deterministic <code>0</code> for a supervisor's delegation, low <code>0.2</code> for planners/workers/critics, <code>0.3</code> for a general ReAct agent) and budget head-room where the pattern loops or fans out (the orchestrator and supervisor get more iterations/wall-clock). Prompts are the role's template (already pattern-aware for planner/worker/critic/supervisor/orchestrator), except <strong>react</strong>, which ships a real think→act→observe prompt, and the <strong>retrieval presets</strong>, which ship hand-written prompts plus the right capability toggles switched on. Everything is a starting point — edit any node after inserting. Inserting a pattern <strong>replaces the entire canvas</strong> (it only confirms if you have existing work); it is not a merge.</p>
+<h3 id="react">react</h3>
+<p>One single agent with a Tools node, running the classic ReAct loop (think → call tool → observe → repeat → answer). The simplest possible agent; mode = <code>chain</code>.</p>
+<p><img alt="diagram: pattern_react" src="images/pattern_react.png"></p>
+<h3 id="planner-executor-critic">planner-executor-critic</h3>
+<p>Three agents: <code>planner → executor → critic</code>, with a <code>critic → planner</code> <strong>revise back-edge</strong> (painted red, dashed). The planner breaks down the task, the executor does the work, the critic judges it and can send it back. Because there is no Router or Condition, this stays in <code>chain</code> mode and the back-edge is detected as the revise loop. (A simpler <code>planner_executor</code> preset drops the critic.)</p>
+<p><img alt="diagram: pattern_pec" src="images/pattern_pec.png"></p>
+<h3 id="supervisor-worker">supervisor-worker</h3>
+<p>A <code>supervisor → worker</code> star: the supervisor delegates by emitting NEXT (pick a worker) or DONE, looping until finished. Workers must be leaves (no outgoing agent links). Mode = <code>supervisor</code>.</p>
+<p><img alt="diagram: pattern_supervisor" src="images/pattern_supervisor.png"></p>
+<h3 id="orchestrator">orchestrator</h3>
+<p>An <code>orchestrator → writer</code> + <code>orchestrator → reader</code> graph. The orchestrator is the <strong>entry-only</strong> owner of the built-in <code>spawn_subagent</code> tool, launching its sub-agents as fresh, isolated ReAct loops (their own tools and budgets, no shared conversation) — and spawns may run <strong>in parallel</strong>. Sub-agents must be plain Agent leaves; no nested orchestration. Mode = <code>autonomous</code>.</p>
+<p><strong>Tuning when it delegates.</strong> Because <code>spawn_subagent</code> is just a tool, the orchestrator answers simple tasks itself and delegates only when needed — aim to avoid both <em>over-delegation</em> (spawning for trivial work: slow, costly) and <em>under-delegation</em> (never using sub-agents: pointless). The strongest control is the <strong>tool surface</strong>: the preset is a <em>pure planner</em> — the orchestrator has <strong>no action tools, only <code>spawn_subagent</code></strong> — so link your Tool nodes to the <strong>sub-agents, not the orchestrator</strong>. Then a pure-reasoning task it answers directly, while anything needing a tool has no local way to do it and must delegate. (Link a few cheap tools to the orchestrator itself for a <em>hybrid</em>.) Reinforce with the orchestrator's prompt ("answer directly when you can; spawn only when a tool, isolation, or parallelism is needed") and a clear first line in each sub-agent's prompt saying what it is for — the orchestrator sees that in its sub-agent menu. Don't try to force a spawn on every task; if anything, cap fan-out with the orchestrator's tool-call / iteration budgets.</p>
+<p><img alt="diagram: pattern_orchestrator" src="images/pattern_orchestrator.png"></p>
+<h3 id="map-reduce-parallel-workers">map-reduce (parallel workers)</h3>
+<p>A <code>coordinator → Fan-out → {worker_1, worker_2, worker_3} → Join → reducer</code> graph. The coordinator frames the task, the three workers run <strong>concurrently</strong> (each a distinct, separately-promptable agent covering a different angle), and the reducer synthesizes their combined results at the join. Unlike a <strong>Worker Pool</strong> (identical workers splitting one task into subtasks), each worker here is its own node with its own prompt (and optional Tools). After inserting: give each worker a specialty in its prompt; add or remove workers by wiring <code>Fan-out → agent → Join</code>. Mode = <code>graph</code>.</p>
+<h3 id="voting-self-consistency-best-of-n">voting / self-consistency (best-of-N)</h3>
+<p><code>framer → Fan-out → { solver_1 · solver_2 · solver_3 } → Join → judge</code>. A framer sets up the task, <strong>N independent solvers</strong> attempt it <strong>concurrently</strong> (the <em>same</em> prompt, run hot at temperature ~0.8 for diverse reasoning paths), and a <strong>judge</strong> picks the <strong>consensus</strong> answer at the join — the classic <em>self-consistency</em> trick that cuts one-shot mistakes. Differs from <strong>map-reduce</strong> (distinct workers whose results are <em>synthesized</em>): here the solvers are <strong>identical</strong> and aggregated by <strong>agreement</strong>. Mode = <code>graph</code>. After inserting: change the solver count by wiring <code>Fan-out → agent → Join</code>; or, if your solvers emit a bare label/number, set the Join's merge to <strong><code>vote</code></strong> and drop the judge (the majority is computed deterministically). </p>
+<h3 id="human-approval-routing-hitl">human approval (routing HITL)</h3>
+<p><code>intake → human_review (route-mode HITL) → { send · reviser · escalate · reject }</code>. An agent drafts a reply, then a <strong>human</strong> picks the next step from the review dialog's buttons: <strong>send</strong> (approve → finalize &amp; send), <strong>reviser</strong> (send back for changes — <strong>loops back</strong> to the review), <strong>escalate</strong> (hand off to a specialist), or <strong>reject</strong> (an <strong>End</strong> node — close with no reply). Shows every route-mode feature in one graph: a human-driven branch, a revise loop, an End branch, and a safe <code>default_route</code> (<code>escalate</code>) so an unattended/timeout run never auto-sends. Mode = <code>graph</code>. Also shipped as a ready-to-open example at <code>graphs/HumanApproval.mta</code>. After inserting: edit each agent's prompt for your own workflow.</p>
+<h3 id="retrieval-presets-crag-self-rag-adaptive-rag">Retrieval presets (CRAG · Self-RAG · Adaptive-RAG)</h3>
+<p>Three ready-made RAG strategies for users who want a proven retrieval flow without hand-tuning the toggles. Each drops in with carefully-written prompts and the right capability flags already on. <strong>The one thing you must still do</strong> is double-click the RAG node and point <em>Docs folder</em> at your documents — until then the graph reports exactly that. The web-search fallback (CRAG, Adaptive) needs <code>pip install ddgs</code>.</p>
+<ul>
+<li><strong>Corrective RAG (CRAG)</strong> — one <code>researcher</code> agent + a RAG node with <em>Grade chunks</em> + <em>Corrective re-retrieval</em> on, and <code>web_search</code> on the agent. Flow: search your docs → grade the passages → if nothing relevant, rewrite the query and retry → if the docs still can't answer, fall back to web search → answer with citations. Mode = <code>chain</code>.</li>
+<li><strong>Self-RAG (self-checking)</strong> — one <code>self_rag</code> agent + a RAG node with <em>Grade chunks</em> on, and <em>Groundedness check</em> (max 2 revises) on the agent. Flow: search → answer only from graded-relevant passages → the answer is auto-checked for being grounded and on-topic, and revised if it falls short. Mode = <code>chain</code>.</li>
+<li><strong>Adaptive RAG (router)</strong> — a self-routing <code>router</code> (planner + <code>route_self</code> + <code>quick_response</code>) that classifies each question and hands off to <code>knowledge_base</code> (your docs, graded), <code>web_research</code> (live web), or answers trivial questions itself. Mode = <code>graph</code>.</li>
+</ul>
+<p>These are starting points — rename agents, edit the prompts, or add tools freely. They're built from the same node props you can set by hand (see §6 <em>Retrieval (RAG)</em>); the presets just save you the configuration.</p>
+<hr>
+<h2 id="5-shared-state-control-flow">5. Shared state &amp; control flow</h2>
+<p>This is MetaAgent's headline feature: a multi-agent graph can share a typed, graph-level <strong>scratchpad</strong> and steer itself with deterministic, <strong>LLM-free</strong> control nodes. All of it activates only in <strong>graph mode</strong>, which the compiler selects automatically when the graph has a Router, a self-routing planner, or any control node (and the entry is not a supervisor/orchestrator).</p>
+<h3 id="the-state-schema">The state schema</h3>
+<p>Declare it once via <strong>Graph → Edit Shared State</strong>. Each field is <code>{name, type, reducer, default, description}</code>.</p>
+<ul>
+<li><strong>Types:</strong> <code>str, int, float, bool, list, dict</code>.</li>
+<li><strong>Reducers</strong> (how repeated writes merge): <code>overwrite</code> (last wins), <code>append</code> (on a <code>list</code> field pushes an item; on a <code>str</code> field <strong>concatenates</strong> the writes, blank-line-joined, so several stages accumulate one transcript), <code>add</code> (numeric +), <code>max</code>, <code>min</code>. The dialog restricts reducers by type (<code>str → overwrite/append</code>; <code>list → overwrite/append</code>; <code>int/float → overwrite/add/max/min</code>).</li>
+</ul>
+<p>Example field row:</p>
+<table>
+<thead>
+<tr>
+<th>name</th>
+<th>type</th>
+<th>reducer</th>
+<th>default</th>
+<th>description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>score</code></td>
+<td>float</td>
+<td>max</td>
+<td>0.0</td>
+<td>Best quality score the editor has given so far.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Built-in fields (always present, read-only).</strong> Every graph also has framework-maintained fields you can <em>read</em> but never declare or write — they show as locked rows in the schema editor:</p>
+<table>
+<thead>
+<tr>
+<th>name</th>
+<th>what it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>user_input</code></td>
+<td>The user's <strong>original request</strong> for this run — set once at the start, never changed. Read it (or branch on it in a Condition) to recover the initial question after several hops.</td>
+</tr>
+<tr>
+<td><code>tool_calls</code></td>
+<td>Names of tools called so far this run (accumulates).</td>
+</tr>
+<tr>
+<td><code>agents</code></td>
+<td>Agent stages visited so far this run (accumulates).</td>
+</tr>
+<tr>
+<td><code>todos</code></td>
+<td>The working checklist — present only when an agent enables the <code>write_todos</code> tool.</td>
+</tr>
+</tbody>
+</table>
+<p>Any attempt to write a built-in (an agent <code>writes</code> entry or a Set-State assignment) is dropped; <code>user_input</code> in particular stays fixed to the original request for the whole graph.</p>
+<h3 id="reading-state">Reading state</h3>
+<p>Each turn, <code>_state_preamble()</code> prepends a read-only JSON block of the current state to the stage's prompt. An agent's <code>reads</code> list limits which fields it sees (empty = all). Every agent also gets a <code>## Shared state</code> system-prompt tail describing each field by name, type, and description, so it knows the shared vocabulary.</p>
+<h3 id="writing-state">Writing state</h3>
+<p>An agent with a non-empty <code>writes</code> list can record state <strong>two ways</strong> — both restricted to its <code>writes</code> whitelist (other fields are silently dropped), both applied through each field's <strong>reducer</strong>:</p>
+<ol>
+<li><strong>The <code>set_state</code> tool (preferred).</strong> Writer agents automatically get a built-in <code>set_state</code> tool whose parameters are exactly their writable fields (typed from the schema). This is the reliable path: it's the native function-calling channel the model is tuned for, it can be called mid-run, and — crucially — it <strong>doesn't fight an output-format constraint</strong> (an agent told to <em>"reply with ONLY a JSON array"</em> can still call <code>set_state</code> on a separate channel). It's bookkeeping, so it's exempt from tool-call budgets / HITL / guardrails.</li>
+<li><strong>A fenced <code>```state</code> block</strong> at the very end of the reply (back-compat):</li>
+</ol>
+<p><code>```state
+   score = 0.6
+   feedback += "Tighten the intro and add an example."
+   ```</code>
+   Values are Python literals (<code>True</code>, not <code>true</code>); the <code>=</code> vs <code>+=</code> operator is cosmetic (the reducer decides the merge).</p>
+<p><strong>Neither <em>forces</em> the model to write</strong> — a tool is an affordance, not a compulsion. If you need a field reliably set, tick <strong>"Require: re-prompt until the agent records these writes"</strong> on the agent (next to its <code>writes</code> selector). After the agent runs, if any declared writable field wasn't recorded, the runtime re-prompts it to call <code>set_state</code> (bounded retries) and then proceeds. It's best-effort enforcement (honored in chain/graph mode), not a hard guarantee.</p>
+<h3 id="ifelse-the-diamond-and-set-state">If/Else (the diamond) and Set-State</h3>
+<p>A <strong>Condition</strong> node (the only diamond-shaped node) has an ordered list of branches <code>[{to, expr}]</code>. The first branch whose expr is true wins; an empty expr is the <code>else</code> fallback. Expressions use a <strong>safe allow-listed grammar</strong> — comparisons, <code>and/or/not</code>, arithmetic, <code>len(x)</code>, literals, and state names — evaluated by a hand-written AST interpreter, <strong>never Python <code>eval</code></strong>. Example:</p>
+<pre><code>score &lt; 0.8 and attempts &lt; 3
+</code></pre>
+<p>A <strong>Set-State</strong> node writes state with no LLM. Its assignments are <code>{field, value}</code>; a value starting with <code>=</code> is a <strong>computed expression</strong> over state plus <code>output</code> (the upstream text):</p>
+<pre><code>attempts  =  =attempts + 1
+</code></pre>
+<blockquote>
+<p>Gotcha: a value <strong>without</strong> the leading <code>=</code> is stored as a literal string. <code>attempts + 1</code> is the text "attempts + 1"; you want <code>=attempts + 1</code>.</p>
+</blockquote>
+<h3 id="while-loops-recursion_limit-checkpointresume">While-loops, recursion_limit, checkpoint/resume</h3>
+<p>A Condition back-edge to an earlier stage forms a <strong>bounded while-loop</strong>. <code>recursion_limit</code> caps total stage transitions (agents <em>and</em> control nodes); overflow raises <code>GraphRecursionError</code>. Set it explicitly, or <code>0</code> = auto (<code>len(stage_kinds)*(MAX_REVISE_ROUNDS+3)+5</code>).</p>
+<p><strong>Run-wide wall-clock deadline.</strong> <code>recursion_limit</code> bounds <em>hops</em>; the same dialog (<strong>Graph → Edit Shared State</strong>) also has <strong>"Max run wall-clock (seconds)"</strong> (<code>run_wall_clock_s</code>, <code>0</code> = none) to bound <em>time</em>. Unlike an agent's per-stage <code>max_wall_clock_s</code> (which resets each stage), this is checked against the <strong>whole run</strong>: at the next step/hop boundary once the limit passes, the run stops and returns a <code>[budget] Run wall-clock…</code> message (it can't interrupt a call already in flight — that's what the LLM's request timeout is for). Use it to cap the total latency of a looping or multi-stage graph regardless of which stage is running.</p>
+<p><strong>The While node</strong> makes that loop first-class. Double-click it to set a <strong>loop condition</strong> (a safe expression over state, e.g. <code>attempts &lt; 3 and not solved</code>) and pick the <strong>loop body</strong> successor. Wire <code>While → body</code>, route the body back to the While node (directly or through a Set-State that makes progress), and <code>While → exit</code> (taken when the condition is false). It lowers to the same condition table the runtime already understands, and the validator catches a missing condition/body/exit and warns if the body never loops back. See <code>graphs/WhileLoopDemo.mta</code> for a runnable <code>Start → Loop[attempts&lt;3] → Work → Bump[=attempts+1] → Loop; Loop → Report</code> example.</p>
+<p><strong>The For-Each node</strong> loops over <em>data</em> instead of a condition — a <strong>parallel map</strong> over a list. Where a While repeats a body until a predicate flips, a For-Each runs its body <strong>once per item</strong> of a shared-state list, the items <strong>concurrently</strong> on isolated state forks (a dynamic fan-out). Double-click it to pick the <strong>list field</strong> (<code>over</code>), the <strong>loop body</strong> successor, and (optionally) an <strong>item field</strong> the current item is written to, a <strong>result field</strong> each item's output is appended to, a <strong>merge</strong> policy for the combined output, and a <strong>max parallel</strong> cap. Wire it exactly like a While: <code>Foreach → body</code>, the body links <strong>back</strong> to the Foreach node, and <code>Foreach → exit</code> runs once after all items. The item is handed to the body <strong>both</strong> as its input and via the item field, so a body agent can just "process the item," or read structured fields from state. The list is produced upstream (an agent write, or a Set-State). Typical shape: <code>Planner[writes pages] → Foreach(over=pages) → Illustrator → Foreach; Foreach → Bookbinder</code>. It reuses the fan-out engine, so branch state merges via each field's reducer — collect per-item results with an <code>append</code>/<code>extend</code> field, not <code>overwrite</code> (the validator warns if the body writes an <code>overwrite</code> field, since parallel items would clobber it). See <code>graphs/ForEachDemo.mta</code> for a runnable <code>Planner[writes topics] → ForEach(over=topics) → Writer → ForEach; ForEach → Report</code> example (a blurb per topic, collected into <code>blurbs</code>).</p>
+<p>Declaring shared state also unlocks <strong>opt-in checkpoint/resume</strong> keyed by <code>thread_id</code>: with <code>"checkpoint": true</code> in config.json, <code>run_graph</code> snapshots state at each stage boundary to <code>checkpoints/&lt;thread_id&gt;.json</code>, and <code>resume(thread_id)</code> continues from the last stage. Checkpointing is at-least-once per stage (a stage may re-run on resume), and a checkpoint from a different topology is ignored.</p>
+<h3 id="end-finish-early">End (finish early)</h3>
+<p>An <strong>End</strong> node (the pill/stadium shape) is a terminal <strong>sink</strong>: it takes incoming links but has none outgoing, and when the flow reaches it the run <strong>stops and returns whatever output was carried into it</strong> — skipping the rest of the pipeline. Use it to short-circuit. In a picture-book agent, for example, wire <code>author → If/Else</code>; the <em>is-just-a-greeting</em> branch goes to <strong>End</strong> (reply and stop) while the <em>else</em> branch continues <code>→ illustrator → bookbinder</code>. Reach End from an If/Else branch, a While exit, or a plain agent / Set-State / Guardrail edge — <strong>not</strong> from a Router (which branches among <em>agents</em> via the LLM) or a HITL gate (which reviews before an <em>agent</em>); those links are refused. If a Guardrail sits just before End, End returns the guardrail-processed (e.g. redacted) output, since it returns the value flowing through the graph. Any graph with an End node runs in <strong>graph mode</strong>.</p>
+<h3 id="worked-example-staterefinedemo">Worked example: StateRefineDemo</h3>
+<p>An editorial refine loop. <strong>Schema:</strong> <code>draft (str/overwrite)</code>, <code>score (float/max)</code>, <code>feedback (list/append)</code>, <code>attempts (int/overwrite)</code>; <code>recursion_limit = 25</code>.</p>
+<p><strong>Flow:</strong> <code>drafter → editor → bump (setstate) → gate (condition) → reviser or publisher</code>, with <code>reviser → editor</code> closing the loop.</p>
+<ol>
+<li><strong>drafter</strong> (<code>writes=[draft]</code>) writes the first draft into <code>draft</code>.</li>
+<li><strong>editor</strong> (<code>reads=[draft]</code>, <code>writes=[score,feedback]</code>) judges it and appends a <code>state</code> block with <code>score</code> (kept by <code>max</code>) and <code>feedback</code> (appended).</li>
+<li><strong>bump</strong> (Set-State, no LLM) runs <code>attempts = =attempts + 1</code> → 0 becomes 1.</li>
+<li><strong>gate</strong> (Condition) evaluates in order:
+   - <code>score &lt; 0.8 and attempts &lt; 3</code> → <strong>reviser</strong>
+   - <code>""</code> (else) → <strong>publisher</strong></li>
+<li><strong>reviser</strong> (<code>reads=[draft,feedback,attempts]</code>, <code>writes=[draft]</code>) rewrites the draft and loops back to <strong>editor</strong> for re-scoring.</li>
+</ol>
+<p>The loop runs until <code>score &gt;= 0.8</code> <strong>or</strong> <code>attempts</code> reaches 3, then <code>gate</code>'s else branch sends the latest draft to <strong>publisher</strong>. <code>recursion_limit=25</code> guarantees termination even if the exit condition never trips.</p>
+<p><img alt="diagram: state_refine_demo" src="images/state_refine_demo.png"></p>
+<blockquote>
+<p>Only <strong>one</strong> incoming path runs per execution — MetaAgent does not do true parallel fan-in. To accumulate across branches or iterations, write into an <code>append</code>/<code>add</code>/<code>max</code>/<code>min</code> field; <code>overwrite</code> keeps only the last writer's value (and the compiler warns when 2+ stages overwrite the same field).</p>
+</blockquote>
+<hr>
+<h2 id="6-tools-skills-rag-mcp-hitl-eval">6. Tools, skills, RAG, MCP, HITL, eval</h2>
+<p>Resource behaviors are real, editable Python modules under <code>runtime/</code>; the generators inline them into <code>agent.py</code> via <code>@MARKER@</code> substitution. Anything that should stay tweakable after generation lives in <code>config.json</code>.</p>
+<h3 id="tools">Tools</h3>
+<p>Tools are plain <code>.py</code> files in <code>tools/</code>, each a function decorated with <code>@tool</code> from <code>tool_registry</code> (a ~0ms, LangChain-free decorator). At generation the import line is stripped and the source is inlined verbatim — the generated agent defines its own identical <code>tool</code> shim, so it has <strong>zero LangChain dependency</strong>. Tool schemas for native function calling are built from the signature: the first docstring line becomes the description the LLM sees; typed args without defaults become required. <code>requirements.txt</code> is auto-derived by scanning the inlined tool imports (e.g. <code>PIL → Pillow</code>, <code>bs4 → beautifulsoup4</code>, <code>fitz → PyMuPDF</code>).</p>
+<p>The <strong>Tool Generator</strong> (Tools menu, or a Tool node's "Create a new tool…") is an in-app coding agent (DeepSeek via SiliconFlow) that writes new tool files for you. Its <code>save_tool</code> is high-risk and pops a code-preview confirm dialog whose default button is <strong>Deny</strong>.</p>
+<p>Per-function overrides — <strong>return-direct</strong>, an <strong>on-error</strong> policy (return/retry/raise), a <strong>risk</strong> override, and an LLM-facing <strong>description</strong> override — live in the Tool node's <em>Extra Settings</em> table; see <a href="#152-tools-node-per-function-overrides">§15.2</a>.</p>
+<h3 id="skills">Skills</h3>
+<p>A Skills node attaches per-agent guidance text appended to the system prompt as <code>## Skill: &lt;name&gt;</code>. Skills are editable live (persist to <code>skills.json</code>); if a Skills node exists the generated GUI gets a Skills menu (add/update/remove).</p>
+<h3 id="rag">RAG</h3>
+<p>A RAG node with a <code>docs_dir</code> gives its linked agent a <code>search_docs(query, top_k)</code> retrieval tool over two sources: files auto-indexed from <code>docs_dir</code> (<code>.txt/.md/.py/.json/.csv</code>, plus <code>.pdf</code> via optional <code>pypdf</code> and <code>.docx</code> via <code>python-docx</code>) and GUI-managed chunks. <strong>Multiple RAG nodes per agent</strong> are allowed — each becomes its own <code>search_&lt;kb&gt;</code> tool named from the node, and the agent routes by the node's <strong>description</strong>. Basic config (<code>docs_dir</code>, <code>chunk_chars</code> 800, <code>top_k</code> 4, description) is editable without regenerating.</p>
+<p>The RAG dialog's advanced pipeline lives in <strong>collapsible sections</strong> (like the Agent node) — <em>Chunking</em>, <em>Retrieval &amp; ranking</em>, <em>Query rewriting &amp; correction</em>, and <em>Embedding &amp; vector store</em>. The dialog opens compact; expand only the area you're tuning. Every knob defaults to the plain offline BM25 baseline, so leaving them untouched keeps today's behavior:</p>
+<ul>
+<li><strong>Chunking:</strong> <code>fixed</code> / <code>recursive</code> / <code>markdown</code> / <code>code</code>, plus overlap.</li>
+<li><strong>Retrieval granularity:</strong> <code>chunk</code> (default — index and return the same piece) or <strong><code>parent_child</code></strong> (small-to-big, learnRAG §4.3): the doc is split into big <em>parent</em> blocks and each parent into small <em>children</em>; the children are indexed/embedded for <strong>precise matching</strong>, but the matched child's <strong>bigger parent block is returned</strong> (de-duplicated) for <strong>fuller context</strong>. Set the parent size with <em>parent chars</em> (default 2400).</li>
+<li><strong>Retrieval:</strong> <code>bm25</code> (default), <code>dense</code> (cosine), or <code>hybrid</code> (RRF fusion). Dense/hybrid use a <strong>free, no-API-key local embedding</strong> by default (<code>BAAI/bge-small-zh-v1.5</code> via <code>fastembed</code>/<code>sentence-transformers</code>) — or an OpenAI-compatible embedding endpoint. <strong>CJK-aware</strong> tokenization. <strong>Vector store:</strong> in-memory (default), <code>chroma</code> (persistent), <code>faiss</code> (in-memory ANN), or <strong><code>qdrant</code></strong> — embedded on-disk by default (<code>./rag_qdrant</code>, no server, offline) or a remote Qdrant server when you set a <em>Qdrant URL</em> (+ optional API key). All are optional deps that <strong>degrade to the in-RAM store</strong> if the library is missing.</li>
+<li><strong>MMR</strong> diversity and <strong>query rewrite</strong> — opt-in.</li>
+<li><strong>Rerank</strong> (learnRAG §9, two-stage retrieval): <code>none</code> (default), <code>llm</code> (rank with the agent's LLM — costs tokens, injectable), or <strong><code>cross_encoder</code></strong> — a <strong>free, local</strong> cross-encoder scores each <code>(query, passage)</code> pair jointly for precise ordering (no tokens, deterministic, not prompt-injectable). Model is configurable (<code>reranker model</code>, default <code>BAAI/bge-reranker-base</code>; <code>BAAI/bge-reranker-v2-m3</code> for strongest CJK; <code>ms-marco-MiniLM-L-6-v2</code> for fast English) via <code>fastembed</code>/<code>sentence-transformers</code>. Set <code>recall_n</code> (e.g. 20–50) to feed it a wide pool. <strong>Fail-soft</strong>: no lib/model/network → keeps the retrieval order + a <code>[note: cross-encoder reranker unavailable …]</code>.</li>
+<li><strong>Grade chunks for relevance (LLM)</strong> — Self-RAG-style: an LLM drops clearly-irrelevant chunks before they reach the agent.</li>
+<li><strong>Corrective re-retrieval (CRAG)</strong> — if a search finds nothing, rewrite the query and retry (bounded by <em>max retries</em>).</li>
+<li><strong>Evict used retrievals</strong> — a newer search elides earlier results this turn to save context.</li>
+</ul>
+<p>Every step is <strong>fail-soft</strong>: no embedding lib / key / network → it silently falls back to BM25 (and now surfaces a <code>[note: semantic search unavailable …]</code> so the drop isn't invisible).</p>
+<h3 id="memory-persistent-cross-run-learning">Memory (persistent cross-run learning)</h3>
+<p>A <strong>Memory</strong> node linked to an agent (<code>memory → agent</code>) gives it two tools: <strong><code>remember(content, tags)</code></strong> — save a durable lesson / fact / outcome — and <strong><code>recall(query, k)</code></strong> — retrieve the most relevant past memories (BM25, reusing the RAG ranker; falls back to the most <em>recent</em> if nothing matches). The store is a <strong>persistent</strong> JSON file (<code>memory_store.json</code>) written crash-safely, so it <strong>survives restarts</strong> — the agent learns <strong>across runs</strong> (Reflexion-style): recall relevant lessons <em>before</em> acting, remember new ones <em>after</em>. Set <code>top_k</code> for the default recall size. Unlike <strong>RAG</strong> (read-only retrieval over <em>your</em> documents), memory is <strong>written by the agent at runtime</strong> and accumulates. It's zero-config and offline (no embeddings/keys). Prompt the agent to use it, e.g. <em>"Before answering, <code>recall</code> relevant past lessons; after, <code>remember</code> anything worth reusing."</em> Reuse the <code>voting</code>/<code>planner-executor-critic</code>-style presets or wire it onto any agent. (Distinct from an agent's per-turn conversation history, which is separate and always on.)</p>
+<h3 id="agent-capabilities-built-in-tools-answer-quality">Agent capabilities (built-in tools &amp; answer quality)</h3>
+<p>Beyond linked resources, the <strong>Agent</strong> dialog carries per-agent toggles (in the <em>Capabilities &amp; tools</em> and <em>Retrieval &amp; answer quality</em> collapsible groups). All are <strong>opt-in / off by default</strong> and fail-soft — an agent you don't touch behaves exactly as before. Each becomes a built-in tool or a runtime behavior, and enabled built-ins show as green pills on the node:</p>
+<p><em>(Separate from these capability toggles, the Agent's </em><em>Extra Settings</em><em> group — rate limit, stage retries, cost cap, mode label, and a structured-final-answer schema — is documented in <a href="#151-agent-node-and-worker-pool">§15.1</a>.)</em></p>
+<table>
+<thead>
+<tr>
+<th>Toggle</th>
+<th>Gives the agent</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Enable to-dos</strong></td>
+<td><code>write_todos</code> checklist tool</td>
+<td>Backs the built-in <code>todos</code> state; shown live in the Run trace. Best for sustained multi-step work.</td>
+</tr>
+<tr>
+<td><strong>Code execution</strong></td>
+<td><code>run_python</code> tool</td>
+<td>Runs Python in an isolated subprocess (cwd = workspace), HITL-confirmed. Backend <code>subprocess</code>/<code>docker</code>/<code>auto</code> + timeout/memory/image. Isolation, <strong>not</strong> a security sandbox; needs a workspace.</td>
+</tr>
+<tr>
+<td><strong>Web search</strong></td>
+<td><code>web_search</code> tool</td>
+<td>Keyless <strong>DuckDuckGo</strong> lookup for external/recent facts. HITL-confirmed (network egress); needs <code>pip install ddgs</code> in the agent's env; honors the proxy.</td>
+</tr>
+<tr>
+<td><strong>Offload large results</strong></td>
+<td><code>read_offload</code> tool</td>
+<td>When a tool result exceeds <code>offload_threshold_chars</code> (12000), the full text is written to <code>&lt;workspace&gt;/offloaded/…</code> and replaced in-context by a pointer + preview; the agent re-reads via <code>read_offload</code>. Needs a workspace.</td>
+</tr>
+<tr>
+<td><strong>Adaptive retrieval</strong></td>
+<td>prompt guidance</td>
+<td>Adaptive-RAG: decide <em>first</em> whether to search at all, then route to the best source (a KB, or <code>web_search</code>).</td>
+</tr>
+<tr>
+<td><strong>Groundedness check</strong></td>
+<td>grade + regenerate loop</td>
+<td>Self-RAG: after answering, grade the answer for grounding in the retrieved context + answering the question; if it falls short, revise up to <em>max revises</em>. One extra LLM call.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Research sub-agent (context quarantine).</strong> A <strong>spawnable</strong> sub-agent (a successor of an <code>orchestrator</code>) that has retrieval tools (a RAG KB and/or <code>web_search</code>) automatically gets a <em>research contract</em>: search in its isolated context and return only a <strong>compact, cited summary</strong> — the raw chunks stay with the sub-agent and never flood the orchestrator's window. Compose it with <code>spawn_subagent</code> for heavy/multi-source research (see <code>graphs/ResearchAgentDemo.mta</code>).</p>
+<blockquote>
+<p><strong>Enable CRAG (Corrective RAG), end to end:</strong> on the <strong>RAG node</strong> tick <em>Grade chunks for relevance</em> + <em>Corrective re-retrieval</em>; on the <strong>Agent</strong> tick <em>web_search</em> (the fallback when the KB can't answer) and, for the full Self-/Adaptive-RAG flow, <em>Adaptive retrieval</em> + <em>Groundedness check</em>. Generate, then <code>pip install ddgs</code>. Flow: search KB → grade → if nothing relevant, rewrite + retry → if still nothing, web search → (optionally) grounded, self-checked answer.</p>
+</blockquote>
+<h3 id="mcp">MCP</h3>
+<p>MCP nodes become <code>config['mcp_servers']</code> entries. On first <code>run()</code> the runtime connects each server (stdio / streamable_http / sse), lists its tools, and registers them by name with a sync wrapper. Failures are isolated — a dead server logs a warning, yields 0 tools, and the agent keeps running. Edit servers later in config.json and use <strong>Settings → Reconnect MCP Server(s)</strong>.</p>
+<p><strong>Renaming resource nodes.</strong> Renaming a <strong>Tool</strong>, <strong>Prompt</strong>, or <strong>Skill</strong> node only relabels the canvas — the generated agent is unchanged (its behaviour comes from the tool file / prompt text / skill items, not the node name). Two exceptions: renaming an <strong>MCP</strong> node changes the friendly name shown in the runtime's <code>[mcp] …</code> log lines (the internal id still keys tool attachment, so reconnect works either way), and renaming a <strong>RAG</strong> node when you have two or more knowledge bases changes its retrieval tool name (<code>search_&lt;name&gt;</code>) and KB label — so keep multi-KB RAG names meaningful (a single RAG node always exposes the fixed <code>search_docs</code>).</p>
+<h3 id="hitl-human-in-the-loop">HITL (human-in-the-loop)</h3>
+<p>Active when <code>config['hitl_confirm']</code> is true (default). Two mechanisms: <strong>tool confirmation</strong> (prompts before high-risk tools) and <strong>review checkpoints</strong> (<code>approve | edit | reject</code>). High-risk detection is <strong>authoritative-per-tool first, name-heuristic last</strong>: a tool can declare its own risk with <code>@tool(risk="high")</code> or <code>@tool(risk="safe")</code>, which codegen bakes into <code>config['high_risk_tools']</code> / <code>config['safe_tools']</code>. So a read-only <code>update_dashboard</code> marked <code>safe</code> will <strong>not</strong> prompt (despite matching <code>update</code>), and a destructive but innocuously-named <code>refresh_cache</code> marked <code>high</code> <strong>will</strong>. Only tools with no <code>risk=</code> fall back to the substring guess on the tool name (<code>write/save/delete/send/post/exec/drop/create/update/upload/shell/…</code>). Both lists stay editable in config.json (<code>high</code> wins if a tool is in both), and the same classification decides parallel-tool safety. <code>hitl_on_reject</code> is <code>stop</code> (end the run) or <code>revise</code> (feed feedback back one step).</p>
+<p>The <strong>tool-confirmation dialog</strong> (GUI, canvas Debug-Run, and desktop client) is a <strong>resizable</strong> window showing the <em>full</em> arguments — including a long LLM-generated <code>code</code> string — in a scrollable editor. You can <strong>Allow</strong>, <strong>Allow edited</strong> (edit the primary argument first, and the tool runs your edited version), or <strong>Deny</strong>, and tick <em>"Don't ask again for &lt;tool&gt; (this run)"</em> to skip further prompts for that tool for the rest of the turn.</p>
+<p><strong>Routing HITL (a human-driven branch).</strong> A HITL node is normally a <em>gate</em> (one outgoing link → approve/edit/reject before the next stage). Draw <strong>2+ outgoing links</strong> out of it and it becomes a <strong>route-mode</strong> node — the human mirror of a Router: the run pauses, the reviewer is shown the payload and a <strong>button per branch</strong>, and their pick decides which successor runs next. Branches are the outgoing targets <strong>by name</strong> (an agent, a Condition/While, or an <strong>End</strong> node for a "stop here" choice); the reviewer may also edit the payload the chosen branch receives. Route mode is <strong>auto-enabled the moment a HITL has 2+ outgoing links</strong> — the Configure HITL dialog makes it obvious with a coloured <strong>ROUTE / GATE banner</strong> (the gate banner tells you to draw a 2nd link to switch), and it <strong>grays out the gate-only options</strong> (on-reject, approve/edit/reject, on-timeout) since the reviewer picks a branch instead. Set a <strong>Default branch</strong> (shown in route mode) as the tie-break taken on an unattended <code>timeout</code> (or when a headless/auto run can't ask). This works across the desktop GUI, the canvas Debug-Run, and the web server (the browser shows a numbered branch picker). Approval / triage / escalation flows are the canonical use. <em>(A 1-outgoing HITL is byte-identical to before — nothing changes for existing graphs.)</em></p>
+<h3 id="prompt-hardening-indirect-prompt-injection-mitigation">Prompt hardening (indirect prompt-injection mitigation)</h3>
+<p>Active when <code>config['harden_prompts']</code> is true (default). Every <strong>tool result</strong> and <strong>retrieved document</strong> the model sees is wrapped in a per-run, random-nonce'd tag — <code>&lt;untrusted-a7f3c1 from=web_search&gt; … &lt;/untrusted-a7f3c1&gt;</code> — and each agent's system prompt carries a clause telling the model that content inside those tags is <strong>untrusted DATA, never instructions</strong> (so "ignore previous instructions" pasted into a web page or document is treated as text). The random nonce (fresh each run) stops an attacker forging the closing tag to "break out." This is an <strong>XML-delimiter mitigation</strong> (as recommended in <code>learnAIAgent_cn.md</code> §2.3.2) — it <em>reduces</em> injection success, it is <strong>not a boundary</strong>: the real enforcement is still <strong>HITL</strong> on high-risk tools and the <strong>guardrails</strong>. Turn it off with <code>harden_prompts: false</code> in config.json.</p>
+<h3 id="eval">Eval</h3>
+<p>An Eval node provides a graded test set: linked to one agent it tests that agent in isolation; standalone it tests the whole pipeline. Cases grade by substring, regex, or LLM judge. Run with <code>python run_evals.py</code> (supports a jsonl path and <code>--floor</code> for CI exit codes).</p>
+<hr>
+<h2 id="7-gui-webserver-streaming-traces">7. GUI, WebServer, streaming, traces</h2>
+<ul>
+<li><strong>Desktop GUI</strong> — a <code>gui</code> node linked to the entry agent emits <code>gui.py</code>, a PySide6 chat window over <code>core.run()</code>. Without it the agent is headless CLI.</li>
+<li><strong>WebServer</strong> — a standalone <code>webserver</code> node emits <code>server.py</code>, a websocket + web chat UI on <code>ws://host:port</code> (default <code>127.0.0.1:8765</code>). <strong>HITL works over the web</strong>: it is a real bidirectional round-trip — the server sends a <code>hitl_confirm</code> (high-risk tool) or <code>hitl_review</code> (stage review) message and the worker thread blocks until the browser replies with <code>hitl_response</code>, so you can approve/deny tools and review stages right in the web UI. If no client is connected to answer (or <code>AUTO_ALLOW</code> is set) it falls back to approve / deny-high-risk.</li>
+<li><strong>Scheduled (ambient) agents</strong> — a <code>schedule</code> node linked to the entry agent emits <code>scheduler.py</code>: instead of waiting for a user, the agent <strong>runs itself on an interval</strong>. Every <code>every_seconds</code> it calls <code>core.run(task)</code> with the preset task, prints the result, and keeps its own rolling conversation — so it can monitor, poll, or maintain something on its own. <strong>Preview it in the canvas</strong> with <strong>Generate ▸ Debug Scheduler (live overlay)</strong> — it runs each job's task <strong>once, in-process, with the same live node overlay + trace panel as a Debug Run</strong> (using your debug API key, which you can <strong>copy from the coding agent</strong>), so you can actually <em>see</em> what each scheduled job does before deploying. To run the real recurring/ambient process, use <strong>Generate ▸ Run Scheduler (ambient)</strong> (it opens its own console window so you see each tick) or <code>python scheduler.py</code>; Ctrl+C stops it and unwinds any in-flight run cleanly. <em>(The ambient process runs separately, so it reads its API key from <code>config.json</code>. When you launch </em><em>Run Scheduler</em><em> with a keyless config, the canvas </em><em>reminds you and offers to copy your key</em><em> — including from the coding agent — into that local <code>config.json</code> so the run works; it's a local working copy, cleared on regeneration and scrubbed from the <code>.mta</code> bundle, and the operator normally sets the key on the real deployment. The in-canvas Debug Scheduler uses the designer's key in memory only.)</em> <strong>You can add several Schedule nodes</strong> — each becomes an <strong>independent, concurrent job</strong> over the same agent, with its own task, <code>every_seconds</code>, <code>offset_seconds</code> (a start delay to stagger jobs so they don't all fire at once), <code>max_runs</code>, and <code>session_id</code> (blank = isolate that job by its node name, so concurrent jobs don't collide). Each job picks <strong>one scheduling strategy</strong> (a <em>Strategy</em> dropdown — the other strategies' fields grey out, so there's no ambiguity):</li>
+<li><strong>Periodic</strong> — every <code>every_seconds</code> (+ <code>offset_seconds</code> phase, <code>run_at_start</code>). Intervals are <strong>drift-free</strong> (anchored to the scheduled time, not "sleep after each run").</li>
+<li><strong>Daily</strong> — every day at a local time <strong><code>at</code></strong> (<code>HH:MM[:SS]</code>, e.g. <code>09:00</code>).</li>
+<li><strong>Once</strong> — a single run at an exact <strong><code>start_at</code></strong> timestamp (<code>YYYY-MM-DD HH:MM[:SS]</code>).</li>
+</ul>
+<p>Picking Daily or Once <strong>ignores</strong> the periodic fields entirely. Each run's header prints its timestamp (<code>=== [news] run #3 @ 2026-07-08 09:00:00 ===</code>); times are local. Per-job settings live in <code>config.json</code>'s <code>schedules</code> list (retune without regenerating). Pair it with a <strong>Memory</strong> node and the agent <em>learns</em> across ticks; with a <strong>RAG</strong> node it re-checks your documents each cycle. <em>(This is the "scheduled" flavour of event-driven; per-agent scheduling and webhook / external-event triggers are natural next steps.)</em>
+- <strong>Multi-user &amp; concurrency</strong> — the web server (and the gateways in <code>client/</code>) serve <strong>many users at once, each fully isolated</strong>. Every connection gets its own <strong>session</strong> (a per-connection id, or a stable one a gateway pins via the <code>session_id</code> field on the task frame — WeChat/DingTalk/Feishu key it per end-user). Each session has its <strong>own conversation history, run state (cancel/usage/cost), HITL prompts, images, workspace, and trace</strong> — nothing bleeds between users, and one user's <strong>Stop</strong> or disconnect only affects their own run. Runs execute <strong>concurrently</strong> (a session's own turns still serialize; different sessions run in parallel). Conversations are persisted per session (<code>sessions/&lt;id&gt;.json</code>), so they survive reconnects; the newest ~200 stay in memory (<code>config['sessions_in_memory']</code>) and older ones reload from disk on demand. <em>(Note: for multi-pattern <code>/mode</code> apps, runs serialize while a mode is active — a rare combination.)</em>
+- <strong>Streaming + Stop</strong> — <code>config['stream']</code> (default true) streams tokens as they arrive; the Stop button calls <code>request_cancel()</code>, which sets a cancel event and force-closes the active LLM stream so even a blocked first-token read aborts. Cancelled/rejected/errored runs are not saved to history.
+- <strong>Cross-run memory (bounded)</strong> — each run prepends the conversation so far: a <strong>rolling summary</strong> plus the recent turns. When history exceeds ~20 turns the older ones are folded into the summary (an LLM merge); the recent-turns slice is char-capped, and the <strong>summary itself is hard-bounded</strong> (<code>config['summary_max_chars']</code>, default 4000) at both the fold and the injection points — so it can't grow without limit across many runs and crowd out the context window, no matter how the summarizer behaves. Within a run, the entry agent also compacts older turns to stay under its LLM's <code>context_capacity</code>.
+- <strong>Vision</strong> — turn on an LLM node's "Accepts image input" flag. Images are attached only to the <strong>first</strong> agent that runs, and only if its model is a vision model; attaching to a non-vision model silently drops the image (with a hint to switch).
+- <strong>Traces</strong> — every run writes a JSONL file to <code>traces/</code>. A live trace sink drives the designer's debug overlay (per-node idle→running→done/error coloring, step/tool counts, lit-up edges) and a trace side panel with a live event timeline. <strong>Fan-out is shown natively:</strong> all branches of a Fan-out light up <strong>running at the same time</strong> (each with its own step badge) and finish independently — no phantom edges between sibling branches; the Fan-out→branch and branch→Join edges light as the barrier opens and closes.
+- <strong>Usage by agent</strong> — after a Debug Run (or when replaying a saved <code>traces/*.jsonl</code>) the trace panel shows a per-agent breakdown: in/out tokens, tool calls, and LLM steps, plus run totals with any retries/failovers. <strong>Cost is opt-in</strong> — a dollar figure appears only when you supply per-model prices (a saved trace carries none). Note: for a parallel worker pool the step count is approximate (workers share one name), but token and tool-call counts stay accurate.</p>
+<hr>
+<h2 id="8-the-generated-app">8. The generated app</h2>
+<p><code>generate_from_graph</code> writes a self-contained folder under <code>generated_agents/&lt;name&gt;/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agent.py</code></td>
+<td>The full runtime (ReAct loop, driver, inlined tools). Topology and budgets are <strong>baked in here</strong>.</td>
+</tr>
+<tr>
+<td><code>config.json</code></td>
+<td>LLMs per agent + flags. <strong>Re-read live</strong> at runtime.</td>
+</tr>
+<tr>
+<td><code>requirements.txt</code></td>
+<td><code>openai</code>/<code>anthropic</code> + tool deps (+ PySide6 if GUI, +mcp if MCP, +websockets if server).</td>
+</tr>
+<tr>
+<td><code>build.bat</code></td>
+<td>Clean-venv PyInstaller onedir build.</td>
+</tr>
+<tr>
+<td><code>README.md</code>, <code>system_prompts.json</code></td>
+<td>Docs + resolved prompts for debugging.</td>
+</tr>
+<tr>
+<td><code>evals/</code> + <code>run_evals.py</code></td>
+<td>The eval harness.</td>
+</tr>
+<tr>
+<td><code>gui.py</code> / <code>server.py</code></td>
+<td>Only when a GUI/WebServer node is present.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="code-style-single-file-vs-python-package">Code style: single file vs Python package</h3>
+<p><strong>Generate ▸ Generate Code</strong> offers two layouts (same agent behaviour — purely how the code sits on disk; the choice is recorded in <code>config.json</code> as <code>code_style</code>):</p>
+<ul>
+<li><strong>as Single File (portable)</strong> — the legacy default (<strong>Ctrl+G</strong>). One self-contained <code>agent.py</code> with the whole runtime inlined. Easiest to ship/inspect as a single artifact.</li>
+<li><strong>as Python Package (modules)</strong> — a conventional editable project:</li>
+</ul>
+<p><code>&lt;name&gt;/
+    agent.py              # thin engine: topology + ReAct loop + run*/pool/eval + tools
+    runtime/
+      _core.py            # shared foundation: config/state, LLM primitives, trace,
+                          #   storage, workspace, image, MCP registry
+      hitl.py  rag.py  history.py  guardrails.py  skills.py  checkpoint.py
+    config.json  requirements.txt  gui.py  ...</code></p>
+<p>Every module does <code>from ._core import *</code>, so the whole package shares <strong>one live</strong> <code>CONFIG</code> / <code>_RUN</code> / <code>HISTORY</code> / <code>TOOLS</code> (functions run against their defining module's globals — there are no copies). <code>agent.py</code> star-imports every runtime name, so <code>import agent; agent.run()/agent.CONFIG/…</code> keeps working exactly as before (this is what <code>gui.py</code> / <code>server.py</code> / <code>run_evals.py</code> rely on). <code>pool</code> and <code>eval</code> stay inline in <code>agent.py</code> because they call back into the engine.</p>
+<p>Two things differ mechanically in a package: (1) to monkeypatch the LLM in a test, patch <code>runtime._core._call_one</code> (not <code>agent._call_one</code>) since <code>llm()</code> lives in <code>_core</code>; (2) PyInstaller (<code>build.bat</code>) follows the <code>runtime.*</code> imports automatically but the package layout is less battle-tested for frozen builds than the single file — prefer single-file if you'll compile to an exe.</p>
+<h3 id="configjson-usually-you-just-add-the-api-key">config.json — usually you just add the api key</h3>
+<p>The generated <code>config.json</code> holds an <code>llms</code> dict per agent (a list: first primary, rest fallback) plus flags like <code>hitl_confirm</code>, <code>high_risk_tools</code>, <code>safe_tools</code>, <code>llm_modes</code>, <code>stream</code>, <code>offload_threshold_chars</code>, <code>rag</code>, <code>skills</code>, <code>evals</code>, <code>mcp_servers</code>, <code>server</code>. Typically you only set <code>api_key</code> on each LLM — <strong>or leave it blank to read an environment variable</strong>.</p>
+<p><strong>Lock an agent to one model (no failover).</strong> With 2+ linked LLMs, the first is primary and the rest are fallbacks — by default the agent <strong>fails over</strong> to the next model on error. To pin it to exactly one model, set the agent's <strong>Multiple LLMs → manual</strong> in its canvas dialog (Agent / Worker-Pool), or in the running desktop app use the <strong>LLM</strong> menu → your agent → pick the model and tick <strong>Lock to selected (no fallback)</strong>. In <code>manual</code> mode only the chosen model runs — it still retries transient errors but never switches, so its error surfaces to you. Saved under <code>config['llm_modes']</code> (only the <code>manual</code> agents are listed; <code>fallback</code> is the default).</p>
+<p><strong>Proxy.</strong> Each LLM entry accepts an optional <code>"proxy": "http://host:port"</code> (e.g. behind a corporate proxy / Zscaler); a top-level <code>"proxy"</code> applies to all LLMs, and if both are blank the agent falls back to <code>HTTP(S)_PROXY</code> env vars. Without it, on a network that blocks direct egress the LLM call would hang — the runtime uses a short connect timeout so it fails fast with a clear error instead.</p>
+<p><strong>Edit settings from the running app.</strong> The generated GUI has a <strong>Settings</strong> menu → <strong>Edit Settings…</strong> to change per-LLM API key / model / base URL / <strong>proxy</strong> / timeout, the WebSocket <strong>port</strong>, and behaviour toggles, then it saves <code>config.json</code> and reloads — no restart. (The same menu keeps <em>Reload Config</em> and <em>Reconnect MCP Server(s)</em>.)</p>
+<pre><code class="language-json">{
+  &quot;llms&quot;: {
+    &quot;csv_helper&quot;: [
+      {
+        &quot;provider&quot;: &quot;siliconflow&quot;,
+        &quot;model&quot;: &quot;deepseek-ai/DeepSeek-V4-Flash&quot;,
+        &quot;base_url&quot;: &quot;https://api.siliconflow.cn/v1&quot;,
+        &quot;api_key&quot;: &quot;&quot;
+      }
+    ]
+  },
+  &quot;hitl_confirm&quot;: true,
+  &quot;stream&quot;: true
+}
+</code></pre>
+<p><code>reload_config()</code> re-reads keys, models, timeouts, sampling, HITL, and mcp_servers live — but <strong>topology and budgets are baked at generation time</strong>, so changing the graph shape or budgets requires regenerating.</p>
+<blockquote>
+<p>Two different <code>config.json</code> files exist: the <strong>host</strong> one (next to <code>main.py</code>, key <code>api_key</code> — provider-neutral; a legacy <code>deepseek_api_key</code> is auto-migrated) configures the MetaAgent app, the Tool Generator, and Estimation; the <strong>generated</strong> one (per-agent <code>llms</code> lists) configures your built agent. Both work with any OpenAI-compatible provider — set <code>api_key</code> + <code>base_url</code> + <code>model</code>.</p>
+</blockquote>
+<hr>
+<h2 id="9-tips-gotchas">9. Tips &amp; gotchas</h2>
+<ul>
+<li><strong>Always use <code>deepseek-ai/DeepSeek-V4-Flash</code>.</strong> The bare <code>deepseek-ai/DeepSeek-V4</code> does <strong>not</strong> exist on SiliconFlow and fails at the chat endpoint. The <code>base_url</code> must never include the chat-completions path.</li>
+<li><strong>Branching needs a router/condition.</strong> A plain agent gets one outgoing flow link. For data branching, route into a single If/Else node; for LLM-decided branching, use a Router, self-routing Planner, Supervisor, or Orchestrator.</li>
+<li><strong><code>route_self</code> / <code>quick_response</code></strong> are honored only when <code>role == 'planner'</code> <strong>and</strong> the agent has 2+ outgoing agent links; otherwise silently ignored.</li>
+<li><strong>A Prompt node linked to a Router does nothing.</strong> A Router's guidance comes only from its own <strong>Instructions</strong> field (else a built-in default); the <code>prompt → router</code> link is allowed but silently ignored. Put routing rules in the Router's Instructions, not a Prompt node.</li>
+<li><strong>Name router branches well — order matters.</strong> The router chooses from each branch's <strong>name + first line of its persona + tool list</strong>, so give every branch a descriptive name and a clear first persona line. On an ambiguous reply the matcher falls back to the <strong>first</strong> successor, so branch/link order decides the tie-break.</li>
+<li><strong><code>orchestrator</code> is entry-only.</strong> A mid-chain orchestrator is a hard error. Sub-agents must be plain leaf Agents — no nested orchestration.</li>
+<li><strong>Condition/Set-State require declared shared state.</strong> Add at least one field via Graph → Edit Shared State or <code>analyze()</code> errors. They are rejected with a supervisor/orchestrator entry.</li>
+<li><strong>Always include an else branch</strong> (empty expr) on a Condition — falling through with no match raises <code>RuntimeError</code> at runtime (validation only warns).</li>
+<li><strong>Set-State <code>=expr</code> needs the leading <code>=</code>.</strong> Otherwise the value is stored as a literal string.</li>
+<li><strong>The <code>state</code> block must be last</strong> in the reply and tagged exactly <code>```state</code>. The reducer — not the <code>=</code>/<code>+=</code> operator — decides how a write merges.</li>
+<li><strong>Reads/writes mismatches</strong> are the usual reason "the agent ignored the state": it only sees fields in <code>reads</code> (empty = all) and only writes fields in <code>writes</code>.</li>
+<li><strong>An agent's LLM must be a text chat model.</strong> Pointing it at an image/embedding model warns; image generation belongs <em>inside a tool</em>, not on the agent's LLM node.</li>
+<li><strong>Duplicate tool files to one agent is an error</strong> (same function registered twice). Identical LLMs or skills only warn.</li>
+<li><strong>Patterns replace the canvas</strong>; use Graph → Merge graph from… to combine instead.</li>
+<li><strong><code>.mta</code> is the portable format</strong> (it embeds tool sources/prompts/skills); plain JSON stores only topology. <code>load_mta</code> never overwrites a differing local <code>tools/</code> file — it keeps yours and reports a conflict.</li>
+<li><strong>Regeneration is authoritative</strong> from the canvas: stale <code>skills.json</code>/<code>evals.json</code> in the output are deleted on regenerate, discarding runtime-only edits not reflected in the graph.</li>
+<li><strong>Behind a proxy?</strong> If the agent runs where direct internet egress is blocked (corporate / Zscaler), set <code>proxy</code> in config.json (per-LLM or top-level) or the <code>HTTP(S)_PROXY</code> env vars — otherwise the LLM call fails fast with a clear timeout instead of hanging.</li>
+<li><strong><code>web_search</code> needs <code>pip install ddgs</code></strong> in the generated agent's environment; it's HITL-confirmed (a network egress) and routes through the proxy.</li>
+<li><strong>Offloading needs a workspace folder</strong> — without one, a too-large tool result is truncated (with a note) instead of written to <code>offloaded/…</code>.</li>
+<li><strong>The While node needs shared state</strong> (the loop condition reads it) and usually a Set-State in the loop body to make progress; the body must route back to the While node, and the loop is bounded by <code>recursion_limit</code>.</li>
+<li><strong>Role-greyed Agent fields are only the planner routing fields</strong> (<code>route_self</code>/<code>quick_response</code>/<code>structured_plan</code>) — every capability (to-dos, code-exec, web-search, offload, adaptive retrieval, groundedness) works for <strong>all</strong> roles and stays editable.</li>
+<li><strong>Always Compile via the designer</strong> (clean buildenv venv) or the exe bloats past 200MB; a frozen MetaAgent needs Python on PATH, or run the agent's own exe.</li>
+</ul>
+<hr>
+<h2 id="10-design-review-the-estimation-menu">10. Design review — the Estimation menu</h2>
+<p>The <strong>Estimation</strong> menu reviews your graph (read-only) and streams findings into a <strong>resizable, non-modal</strong> window — <em>the canvas stays fully editable while it runs.</em> Four actions:</p>
+<ul>
+<li><strong>Estimate Graph</strong> — <strong>deterministic (no LLM):</strong> the errors + warnings from <code>analyze()</code>, the resolved mode / entry / pipeline, and cost-shape metrics (agent count, minimum agent invocations, budget totals, worker-pool / orchestrator parallelism, loops).</li>
+<li><strong>Estimate Prompts</strong> — each agent's composed system prompt: deterministic checks (empty / too-short / too-long / duplicate / role-default) <strong>plus</strong> a grounded LLM judge that flags internal <strong>contradictions</strong>, ambiguity, conflicts with the agent's role/tools, and missing guidance — plus a <strong>cross-prompt</strong> pass for inter-agent conflicts.</li>
+<li><strong>Estimate Tool</strong> — deterministic docstring checks + an LLM judge of each linked tool function's docstring (could an agent tell <em>when</em> and <em>how</em> to call it?).</li>
+<li><strong>Estimate All</strong> — runs all three, tags each finding by area, and adds a holistic synthesis of the top issues.</li>
+</ul>
+<p>Findings are colour-coded by severity and appear <strong>bit-by-bit</strong> as they're produced (deterministic ones instantly, LLM ones as they land). A finding that names a node is a <strong>link — click it to jump to that node</strong> on the canvas. <strong>Copy</strong> / <strong>Save</strong> export the report as Markdown.</p>
+<p><strong>Needs an API key.</strong> The LLM layers use the same LLM as the Tool Generator (the <strong>⚙ gear</strong> in the top-right corner <strong>→ LLM API Key / Model / URL…</strong>). <em>Estimate Graph</em> works with no key; the others fall back to their deterministic checks and note the LLM pass was skipped. If no key is set when you run an estimate, MetaAgent opens the settings dialog first.</p>
+<p><strong>Fix with AI (opt-in, human-approved loop).</strong> When findings are auto-fixable (prompt issues and tool docstrings), a <strong>Fix with AI…</strong> button appears. It:
+1. proposes <strong>one rewrite per agent</strong> (resolving <em>all</em> that agent's prompt issues in a single edit — no clobber) and <strong>one docstring rewrite per tool function</strong>;
+2. shows each rewrite in a <strong>resizable before/after review</strong> — you <strong>Apply</strong> or <strong>Skip</strong>;
+3. applies with a <strong>self-check + auto-revert</strong>: a prompt edit is reverted if <code>analyze()</code> gains a new error; a docstring edit is reverted if the tool file no longer compiles;
+4. then <strong>re-estimates and repeats</strong> until nothing fixable remains (or a round cap), so fixes compound instead of overwriting each other.</p>
+<p>Graph-structural findings are advisory (not auto-fixed), and <strong>nothing changes without your per-fix approval.</strong></p>
+<hr>
+<h2 id="11-guardrails-content-safety">11. Guardrails (content safety)</h2>
+<p>Two mechanisms, both distinct from HITL (§6) and prompt hardening (§6):</p>
+<ul>
+<li><strong>Per-agent guardrails</strong> (Agent dialog) — hooks that scan an agent's <strong>tool arguments, tool results, and final output</strong>: PII redaction, secret detection, an input scan, an image allow-list, and an optional advisory LLM classifier. Runtime: <code>runtime/guardrails.py</code>. Off by default; configured per agent.</li>
+<li><strong>The Guardrail node</strong> (a control node) — an <strong>inline content gate</strong> placed <em>in</em> the flow that <strong>redacts or blocks</strong> the content passing through it. Checks: <strong>secrets / PII / prompt-injection</strong>; <code>on_trip</code> = <em>redact</em> or <em>block</em> (injection always blocks). Wire it between stages — e.g. just before an <strong>End</strong> — to sanitize what flows onward (End returns the guardrail-processed output).</li>
+</ul>
+<p>Neither is a security sandbox — they <em>reduce</em> risk. The real enforcement for dangerous actions remains <strong>HITL</strong> on high-risk tools.</p>
+<hr>
+<h2 id="12-storage-persistence">12. Storage &amp; persistence</h2>
+<p><strong>Graph → Storage / Persistence…</strong> chooses where the <em>generated</em> agent keeps its <strong>chat sessions (memory)</strong> and <strong>checkpoints</strong>: <strong>disk</strong> (the default file layout), <strong>SQLite</strong>, or <strong>PostgreSQL</strong> (via a DSN). Runtime: <code>runtime/storage.py</code>; the choice is saved with the graph. (Checkpoint/resume behavior itself is covered in §5.)</p>
+<hr>
+<h2 id="13-running-debugging-in-the-designer">13. Running &amp; debugging in the designer</h2>
+<p>Beyond <strong>Generate Code</strong>, you can run and inspect an agent without leaving the canvas:</p>
+<ul>
+<li><strong>Generate ▸ Run GUI Agent</strong> — launch the generated desktop GUI.</li>
+<li><strong>Generate ▸ Run Scheduler (ambient)</strong> — launch <code>scheduler.py</code> in its own console (needs a Schedule node linked to the entry agent); the agent then runs itself on its interval.</li>
+<li><strong>Generate ▸ Debug Scheduler (live overlay)</strong> — preview each Schedule job once in the canvas with the live trace overlay (uses your debug API key).</li>
+<li><strong>Generate ▸ Debug Run (live overlay)</strong> — run with the trace overlay on the canvas: nodes light up idle→running→done/error, with step/tool counts and lit edges.</li>
+<li><strong>Generate ▸ Chat Run (multi-turn)…</strong> — a conversational panel: multi-turn chat against the agent, saved sessions, and ↑/↓ input recall.</li>
+<li><strong>Generate ▸ Replay Trace…</strong> — open a saved <code>traces/*.jsonl</code> run and re-animate it on the canvas with play / step / scrub.</li>
+<li><strong>Generate ▸ Dump System Prompts…</strong> — export every agent's fully-resolved system prompt (same content as <code>system_prompts.json</code>).</li>
+<li><strong>Generate ▸ Open Output Folder / Compile (PyInstaller)</strong> — see §8.</li>
+<li><strong>View menu</strong> toggles: <strong>Auto-fit view</strong>, <strong>Fit to view now</strong> (<code>Ctrl+0</code>), <strong>Show run trace panel</strong>, <strong>Show chat run panel</strong>.</li>
+</ul>
+<hr>
+<h2 id="14-menu-reference-appendix">14. Menu reference (appendix)</h2>
+<ul>
+<li><strong>Edit:</strong> Undo (<code>Ctrl+Z</code>) · Redo (<code>Ctrl+Y</code> / <code>Ctrl+Shift+Z</code>). <em>(History resets on New / Load.)</em></li>
+<li><strong>Graph:</strong> Save… · Load… · Merge graph from… · Edit Shared State… (fields · recursion limit · <strong>max run wall-clock</strong>) · Storage / Persistence…</li>
+<li><strong>Generate:</strong> Generate Code ▸ (as Single File <code>Ctrl+G</code> / as Python Package) · Run GUI Agent · Debug Run (live overlay) · Chat Run (multi-turn)… · Replay Trace… · Compile (PyInstaller) · Open Output Folder · Dump System Prompts…</li>
+<li><strong>Tools:</strong> Tool Generator… (<code>Ctrl+T</code>)</li>
+<li><strong>Patterns:</strong> one item per preset — react · planner-executor · planner-executor-critic · supervisor-worker · orchestrator · CRAG · Self-RAG · Adaptive-RAG.</li>
+<li><strong>View:</strong> Auto-fit view · Fit to view now (<code>Ctrl+0</code>) · Show run trace panel · Show chat run panel.</li>
+<li><strong>Estimation:</strong> Estimate Prompts · Estimate Graph · Estimate Tool · Estimate All. <em>(See §10.)</em></li>
+<li><strong>⚙ (gear, top-right corner):</strong> Configure — LLM API Key / Model / URL… · Theme ▸ Dark / Light.</li>
+</ul>
+<hr>
+<h2 id="15-extra-settings-reference-advanced-per-node-knobs">15. Extra Settings reference (advanced per-node knobs)</h2>
+<p>Most node dialogs have a collapsed <strong>Extra Settings</strong> group (click the ▸ header to expand it) that exposes advanced, opt-in configuration. <strong>The universal rule: every field defaults to today's behaviour.</strong> Leaving a field blank (or <code>0</code>) emits <em>nothing</em> into the generated code — a graph you never touch compiles byte-for-byte identically to before these knobs existed. So you can adopt them one at a time, and an unfamiliar field is always safe to ignore.</p>
+<p>These settings live on the <strong>node</strong>, so they travel in the <code>.mta</code> file and survive save/load. Below, each node lists its settings with what they do, the accepted values (and what blank means), and a concrete reason to reach for it. <strong>The Agent and Tool nodes get the fullest treatment</strong> — they're where most tuning happens.</p>
+<h3 id="151-agent-node-and-worker-pool">15.1 Agent node (and Worker Pool)</h3>
+<p>The Agent dialog's <strong>Extra Settings</strong> group and its <strong>Structured final answer</strong> group. (The Worker Pool dialog carries the same <strong>Max RPM</strong> and <strong>Stage retries</strong> pair.)</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Mode label</strong></td>
+<td>Tags this agent as the <strong>entry of a switchable runtime "mode".</strong> If two or more agents in the graph carry a mode label, the generated app becomes multi-pattern: the end user types <code>/mode &lt;label&gt;</code> at the prompt to swap between whole pipelines (the choice sticks across turns; a bare <code>/mode</code> lists them). The first tagged agent is the default mode.</td>
+<td>Free text — keep it to letters/digits/<code>_</code>/<code>-</code> (that's what <code>/mode</code> matches). Blank = ordinary single-pattern app.</td>
+<td>Ship <strong>one</strong> app that offers interchangeable pipelines over the same tools — e.g. a cheap fast <code>chat</code> mode vs a thorough <code>research</code> mode, or a ReAct vs a Supervisor topology — selectable at runtime. See §2 <em>runtime modes</em>.</td>
+</tr>
+<tr>
+<td><strong>Max requests/min (RPM)</strong></td>
+<td>Rate-limits <strong>this agent's</strong> LLM calls. Calls are spaced to at most N per minute (parallel worker-pool threads sharing the agent are paced together; other agents are unaffected).</td>
+<td>Whole number ≥ 0. Blank/<code>0</code> = unlimited.</td>
+<td>Your provider tier enforces a strict RPM quota (free/trial keys) and you keep hitting HTTP 429s, or a tool-loop-heavy agent bursts many calls per turn. Set e.g. <code>20</code> and the run self-throttles instead of erroring.</td>
+</tr>
+<tr>
+<td><strong>Stage retries</strong></td>
+<td>On a <strong>transient</strong> failure (the error <code>llm()</code> raises <em>after</em> per-call retry <strong>and</strong> model failover are already exhausted), re-runs the <strong>whole stage</strong> with exponential backoff (1s, 2s, 4s…). Deliberately never retries cancel, human-reject, the recursion-limit guard, or a tool that raised (<code>ToolAborted</code>). The human input checkpoint runs <em>outside</em> the loop, so a reviewer isn't re-prompted.</td>
+<td>Whole number ≥ 0. Blank/<code>0</code> = run once (legacy behaviour).</td>
+<td>A critical stage talks to a flaky endpoint and you'd rather auto-recover the whole stage than fail the run — e.g. <code>2</code> on a key extraction stage.</td>
+</tr>
+<tr>
+<td><strong>Max budget ($)</strong></td>
+<td>A hard <strong>per-run</strong> spend ceiling. Cost accrues across all agents in the run; at the top of each reasoning step, if the running total ≥ the cap the stage aborts with <code>[budget] Cost limit exceeded (~$…)</code>.</td>
+<td>Float ≥ 0 USD. Blank/<code>0</code> = no cap. <strong>Depends on prices:</strong> inert unless the connected <strong>LLM node's</strong> <em>Input/Output price ($/1M tok)</em> are set (see §15.3).</td>
+<td>Cap spend on an expensive model or over open-ended/untrusted input — e.g. abort at <code>$0.50</code>. Remember to set the LLM node prices, or the cap never bites.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Structured final answer</strong> (its own collapsible group):</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Final-answer schema</strong></td>
+<td>Constrains <strong>only this agent's final answer</strong> to a JSON object. Codegen appends a <code>## Structured final answer</code> clause to the persona; at runtime the final reply is parsed (tolerating a <code>``json fence or surrounding prose), validated against the schema, and on success returned as **canonical JSON** (prose/fences stripped). On a mismatch it re-asks (quoting the schema) up to the retry limit, then returns the raw text with a</code>[schema]` note.</td>
+<td>A JSON object that is a JSON Schema. Supported keywords: <code>type</code>, <code>properties</code>, <code>required</code>, <code>items</code>, <code>enum</code>, <code>additionalProperties:false</code>. Blank = no constraint.</td>
+<td>A downstream stage, a link contract, or an external program consumes this agent's output and needs a guaranteed shape — e.g. an extractor that must return <code>{"name":…, "amount":…, "date":…}</code>. Differs from an LLM node's <em>response format</em>, which shapes <strong>every</strong> call rather than just the final answer.</td>
+</tr>
+<tr>
+<td><strong>Max re-asks on mismatch</strong></td>
+<td>How many corrective re-ask rounds to attempt when the final answer fails validation. <code>0</code> = validate/normalize once, no re-ask.</td>
+<td>Whole number ≥ 0. <strong>Default is <code>2</code></strong> (blank saves 2, unlike the other numeric fields). Only active when a schema is set.</td>
+<td>Raise (e.g. <code>4</code>) for a weaker model that keeps wrapping JSON in prose; set <code>0</code> to avoid paying for extra round-trips.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Worked example — a budgeted, schema-locked extractor.</strong> You have an <code>Extractor</code> agent that must return <code>{"invoice_no": str, "total": number}</code> and must never cost more than 30¢ per run. (1) On the <strong>LLM node</strong> feeding it, set <em>Input price</em> and <em>Output price</em> (e.g. <code>0.27</code> / <code>1.1</code> for DeepSeek-V4-Flash). (2) On the <strong>Agent</strong>, set <em>Max budget ($)</em> = <code>0.30</code>. (3) In <strong>Structured final answer</strong>, paste <code>{"type":"object","properties":{"invoice_no":{"type":"string"},"total":{"type":"number"}},"required":["invoice_no","total"]}</code> and leave <em>Max re-asks</em> at <code>2</code>. Generate. Now the agent returns clean JSON (re-asking itself if it drifts) and any run that would blow the budget aborts cleanly with a <code>[budget]</code> message.</p>
+</blockquote>
+<h3 id="152-tools-node-per-function-overrides">15.2 Tools node (per-function overrides)</h3>
+<p>The Tools dialog's <strong>Extra Settings (per tool function)</strong> table has <strong>one row per <code>@tool</code> function</strong> in the node's <em>checked</em> files (the rows rebuild as you tick/untick files). Every override is keyed by the <strong>function name</strong> and is <strong>app-wide</strong> — the same function name in two Tool nodes shares one setting (last one wins). Leave a row untouched and nothing is emitted for it.</p>
+<blockquote>
+<p><strong>How to configure it — there is no "Add" button (by design).</strong> The table is <em>driven by the tool-file list above it</em>, and you edit the cells <strong>in place</strong>:</p>
+<ol>
+<li><strong>Double-click the Tools node</strong> to open its dialog.</li>
+<li>In the <strong>tool list</strong> at the top, <strong>tick the checkbox</strong> next to each <code>.py</code> file you want this node to attach. <em>(No files in the list? Click </em><em>Create a new tool…</em><em> to write one, or </em><em>↻ Refresh</em><em> to re-scan <code>tools/</code>.)</em></li>
+<li>Click the <strong>▸ Extra Settings (per tool function)</strong> header to expand it. <strong>A row now appears for every <code>@tool</code> function in the files you ticked</strong> — so if the table is empty, nothing is checked yet (or the checked files define no <code>@tool</code> functions).</li>
+<li><strong>Edit the cells directly</strong> — no separate edit dialog: tick <strong>Return direct</strong>; pick <strong>On error</strong> (return / retry / raise); type <strong>Retries</strong>; pick <strong>Risk</strong> (default / high / safe); type a <strong>Description override</strong>. Cells left at their default write nothing.</li>
+<li>Click <strong>OK</strong>. Only the non-default cells are saved onto the node (and stale rows for files you unchecked are dropped).</li>
+</ol>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Function</strong></td>
+<td>Read-only — the tool function this row configures.</td>
+<td>—</td>
+<td>Identifies the target. (Two files exporting the same function name collide, since keying is by bare name.)</td>
+</tr>
+<tr>
+<td><strong>Return direct</strong></td>
+<td>When this tool runs, its <strong>string output becomes the final answer</strong> — the ReAct loop short-circuits with no further LLM turn (the output still passes the output guardrails first).</td>
+<td>Checkbox. Unchecked = normal (the model gets the result and keeps reasoning).</td>
+<td>A tool whose output <em>is</em> the answer — a report/quote builder, a <code>render_answer</code> formatter — where you don't want the model to paraphrase or add a second turn. Saves a round-trip and protects structured output.</td>
+</tr>
+<tr>
+<td><strong>On error</strong></td>
+<td>Policy when the tool raises: <strong>return</strong> = surface <code>[ERROR] …</code> to the model so it can adapt; <strong>retry</strong> = re-attempt up to <em>Retries</em>+1 times, then surface <code>[ERROR]</code>; <strong>raise</strong> = abort the whole run (<code>ToolAborted</code>, which even bypasses the agent's Stage retries). <em>(A bad-arguments <code>TypeError</code> is always surfaced, never retried.)</em></td>
+<td>Combo: return | retry | raise. Default = <strong>return</strong>.</td>
+<td><code>retry</code> for a flaky network/API tool that transiently 502s. <code>raise</code> for a mandatory step whose failure makes the answer wrong/unsafe (validation, payment) — fail loud. <code>return</code> (default) when the model can work around a failure.</td>
+</tr>
+<tr>
+<td><strong>Retries</strong></td>
+<td>Extra attempts for the <strong>retry</strong> policy. No backoff between tries, and it <strong>re-runs the tool's side effects.</strong></td>
+<td>Whole number ≥ 0. Blank = <code>0</code> (= one attempt). Only meaningful when <em>On error</em> = retry.</td>
+<td><code>2–3</code> for an <strong>idempotent</strong> read hitting a rate-limited endpoint. Don't set it on write/send/payment tools — it repeats the side effect.</td>
+</tr>
+<tr>
+<td><strong>Risk</strong></td>
+<td>Overrides HITL classification — <strong>authoritative</strong> over both the tool's own <code>@tool(risk=…)</code> and the name heuristic. <code>high</code> = always confirm before running (when HITL is on); <code>safe</code> = never confirm.</td>
+<td>Combo: default | high | safe. Default = defer to the tool's declaration / name guess.</td>
+<td><code>high</code> to force a confirm on an innocuous-looking tool that actually mutates data (a <code>refresh_cache</code> that wipes records). <code>safe</code> to stop a read-only tool tripping the prompt (a <code>delete_temp_preview</code> that only clears a scratch view). <em>(<code>run_python</code> and <code>web_search</code> are always high-risk regardless.)</em></td>
+</tr>
+<tr>
+<td><strong>Description override</strong></td>
+<td>Replaces the tool's <strong>LLM-facing</strong> description in the function-calling schema — changes <em>how/when the model calls it</em> without editing the tool file. Falls back to the function's docstring when blank.</td>
+<td>Free text. Blank = use the docstring.</td>
+<td>Sharpen a terse or developer-oriented docstring, add a usage constraint ("only for USD amounts"), or disambiguate two similar tools so the model routes correctly.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Worked example — a direct-return report tool that always prompts.</strong> Your <code>build_report(rows)</code> tool renders the final Markdown a user should see, and it writes to disk. In the Tools node's table: tick <strong>Return direct</strong> on <code>build_report</code> (its output is the answer — no extra LLM turn to mangle it), set <strong>Risk</strong> = <code>high</code> (it writes files, so confirm first even though "build" doesn't trip the heuristic), and put a crisp <strong>Description override</strong> like <em>"Render the final report from the analyzed rows. Call once, last."</em> Leave <em>On error</em> = return so a hiccup is surfaced to the model rather than aborting.</p>
+</blockquote>
+<h3 id="153-llm-node">15.3 LLM node</h3>
+<p>Collapsible <strong>Extra Settings (advanced sampling)</strong>. The sampling knobs all fold into one per-call <code>extra</code> dict passed verbatim to the provider — so provider-specific params simply ride along (and are silently ignored by backends that don't support them).</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reasoning effort</strong></td>
+<td>Thinking depth on reasoning models.</td>
+<td><code>minimal</code>/<code>low</code>/<code>medium</code>/<code>high</code>. Blank = model default.</td>
+<td><code>high</code> for hard multi-step tasks; <code>minimal</code>/<code>low</code> to cut latency/cost on easy ones.</td>
+</tr>
+<tr>
+<td><strong>Seed</strong></td>
+<td>Fixes the sampling RNG (where the provider honours it).</td>
+<td>Integer. Blank = non-deterministic.</td>
+<td>Reproducible eval/regression runs and debugging.</td>
+</tr>
+<tr>
+<td><strong>Top-k</strong></td>
+<td>Caps sampling to the k likeliest tokens.</td>
+<td>Integer. Blank = provider default.</td>
+<td>Tighten randomness when temperature alone drifts too much.</td>
+</tr>
+<tr>
+<td><strong>Presence / Frequency penalty</strong></td>
+<td>OpenAI-style penalties: presence pushes toward new topics; frequency curbs verbatim repetition.</td>
+<td>Float. Blank = no penalty.</td>
+<td>Stop the model dwelling on one topic / repeating phrasing in long output.</td>
+</tr>
+<tr>
+<td><strong>Stop sequences</strong></td>
+<td>Halt generation when a sequence appears.</td>
+<td>One per line. Blank = none.</td>
+<td>Cut replies at a known delimiter (<code>END</code>, a role marker) to keep them tight.</td>
+</tr>
+<tr>
+<td><strong>Max retries</strong></td>
+<td>Per-call retry budget for <strong>transient</strong> API errors (429/5xx/timeout/…), with exponential backoff+jitter; non-retryable errors raise at once.</td>
+<td>Integer ≥ 0. Blank = <code>2</code>. <code>0</code> = fail fast.</td>
+<td>Raise for a flaky/rate-limited endpoint; <code>0</code> for a snappy interactive LLM where you'd rather see the error than wait.</td>
+</tr>
+<tr>
+<td><strong>Tool choice (1st turn)</strong></td>
+<td>Forces tool behaviour on the <strong>opening</strong> turn only (later turns revert to auto), and only if the agent has tools. <code>any</code> = must call some tool; <code>none</code> = no tools (pure reasoning); <code>specific</code> = force one named tool.</td>
+<td>Combo auto | any | none | specific (+ <em>specific tool</em> name). Blank = auto.</td>
+<td>Guarantee the agent acts via a tool first (<code>any</code>), forbid tools for a reasoning turn (<code>none</code>), or always run e.g. <code>retrieve_docs</code> first (<code>specific</code>).</td>
+</tr>
+<tr>
+<td><strong>Input / Output price ($/1M tok)</strong></td>
+<td>Per-token prices used for <strong>cost tracking</strong>; they feed an agent's <em>Max budget ($)</em> cap.</td>
+<td>Float USD. Blank = no cost tracking (term is 0).</td>
+<td>Enable $-accounting / a budget cap — set <strong>both</strong> for accurate totals.</td>
+</tr>
+<tr>
+<td><strong>Extra API params (JSON)</strong></td>
+<td>Escape hatch — a JSON object merged <strong>last</strong> (overrides the fields above) and passed verbatim.</td>
+<td>JSON object, e.g. <code>{"logprobs": true}</code>. Blank = nothing.</td>
+<td>Any provider param not surfaced as a field (<code>logprobs</code>, <code>logit_bias</code>, custom flags).</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — deterministic, cost-tracked runs.</strong> Double-click the LLM node → expand <strong>Extra Settings (advanced sampling)</strong>. Set <strong>Seed</strong> = <code>42</code> (same input → same output, for evals), <strong>Max retries</strong> = <code>4</code> (your key is rate-limited), and <strong>Input/Output price ($/1M tok)</strong> = <code>0.27</code> / <code>1.1</code> — now an Agent fed by this LLM can enforce a <strong>Max budget ($)</strong> cap (§15.1). To force retrieval first, set <strong>Tool choice (1st turn)</strong> = <code>specific</code> and <strong>specific tool</strong> = <code>search_docs</code>.</p>
+</blockquote>
+<h3 id="154-eval-node-grader-registry">15.4 Eval node (grader registry)</h3>
+<p>Each Eval <strong>case</strong> picks how the answer is graded — the <strong>Pass when answer</strong> dropdown exposes 15 graders (the plain <em>contains</em> / <em>regex</em> / <em>judge</em> cases still save the legacy keys, so they stay byte-identical).</p>
+<table>
+<thead>
+<tr>
+<th>Grader family</th>
+<th>Members</th>
+<th>Extra inputs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Substring / text</strong></td>
+<td>contains, does-not-contain, contains-ALL, contains-ANY, equals, starts-with, ends-with</td>
+<td><em>Case-sensitive</em> toggle (default off = case-insensitive)</td>
+</tr>
+<tr>
+<td><strong>Regex</strong></td>
+<td>regex-matches, regex-does-not-match</td>
+<td><em>Case-sensitive</em> toggle</td>
+</tr>
+<tr>
+<td><strong>Structured</strong></td>
+<td>is-valid-JSON, JSON-has-keys</td>
+<td>keys as a list (comma/newline)</td>
+</tr>
+<tr>
+<td><strong>Numeric / fuzzy / size</strong></td>
+<td>numeric (± <em>tolerance</em>), similar (≥ <em>threshold</em>, default 0.8), length (<em>min</em>/<em>max</em>)</td>
+<td>tolerance / threshold / min / max as shown</td>
+</tr>
+<tr>
+<td><strong>LLM</strong></td>
+<td>judge (rubric)</td>
+<td>a criterion string; costs one extra LLM call, fails closed</td>
+</tr>
+</tbody>
+</table>
+<p>Every case also has a <strong>Negate</strong> toggle — pass exactly when the assertion does <em>not</em> hold (e.g. answer must <strong>not</strong> contain a forbidden phrase). Blank/unset inputs make a grader fail rather than pass, so give each case a real expectation.</p>
+<blockquote>
+<p><strong>Example — grade a numeric answer with slack.</strong> In the Eval node, add a case: <em>Input</em> = "What's 22 × 3?", <strong>Pass when answer</strong> = <code>numeric (± tolerance)</code>, <em>value</em> = <code>66</code>, <em>Tolerance</em> = <code>0.5</code>. It passes as long as the extracted number is within ±0.5 of 66. For a JSON-returning agent, use <code>JSON has keys</code> with <em>value</em> = <code>invoice_no, total</code>; to forbid a phrase, use <code>does NOT contain</code> (or any grader + the <strong>Negate</strong> toggle). Run with <code>python run_evals.py</code>.</p>
+</blockquote>
+<h3 id="155-hitl-node">15.5 HITL node</h3>
+<p>Collapsible <strong>Extra Settings</strong> (the core <em>On reject</em> = stop/revise is a top-level field, not here).</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Decisions the reviewer may take</strong></td>
+<td>Restricts which buttons the reviewer gets. A decision outside the allowed set falls back to <em>approve</em>.</td>
+<td>Any subset of Approve / Edit / Reject (≥ 1). Default = all three.</td>
+<td>A pure sign-off gate (approve-only), or approve+reject without letting the reviewer rewrite the content.</td>
+</tr>
+<tr>
+<td><strong>Auto-decide after (s)</strong></td>
+<td>If no one answers within N seconds the checkpoint <strong>auto-decides</strong> (a late answer is discarded); emits an <code>hitl_timeout</code> trace.</td>
+<td>Integer ≥ 0. Blank/<code>0</code> = wait forever (legacy).</td>
+<td>Unattended/headless/scheduled runs, so a checkpoint can't hang the pipeline.</td>
+</tr>
+<tr>
+<td><strong>On timeout</strong></td>
+<td>The auto-decision when the timeout fires. <code>reject</code> then runs the node's <em>On reject</em> policy (stop or revise).</td>
+<td>approve | reject. Default = approve (fail-open). Only matters with a timeout.</td>
+<td>Fail-open (<code>approve</code>) to keep moving, or fail-closed (<code>reject</code>) to halt/revise a sensitive gate.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — a sign-off gate that can't hang a nightly run.</strong> In the HITL node → <strong>Extra Settings</strong>, untick <strong>Edit</strong> and <strong>Reject</strong> so the reviewer can only <strong>Approve</strong> (a pure sign-off), set <strong>Auto-decide after (s)</strong> = <code>120</code>, and <strong>On timeout</strong> = <code>reject</code> (fail-closed — if nobody approves in 2 minutes, halt via the node's <em>On reject</em>).</p>
+</blockquote>
+<h3 id="156-guardrail-node">15.6 Guardrail node</h3>
+<p>Collapsible <strong>Extra Settings (custom patterns, length cap)</strong>, layered on top of the built-in secret/PII/injection scans. Matched text is redacted to <code>[REDACTED:custom]</code>, or the run is <strong>blocked</strong> when the node's <em>On a hit</em> = block. The length cap is always truncate-and-continue (never blocks).</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Custom regexes</strong></td>
+<td>Extra regexes to redact/block. Invalid regexes are rejected when you click OK; a bad one is skipped at runtime.</td>
+<td>One regex per line. Blank = none.</td>
+<td>Domain tokens the built-ins miss — <code>JIRA-\d+</code>, account numbers, a codename.</td>
+</tr>
+<tr>
+<td><strong>Literal keywords</strong></td>
+<td>Plain terms (auto-escaped), matched case-insensitively.</td>
+<td>One per line. Blank = none.</td>
+<td>Simpler than regex for plain words — a competitor/project name, profanity.</td>
+</tr>
+<tr>
+<td><strong>Max content length (chars)</strong></td>
+<td>Truncates content over the cap (adds <code>… [truncated by guardrail]</code>) and continues.</td>
+<td>Whole number ≥ 0. Blank/<code>0</code> = no cap.</td>
+<td>Cap runaway upstream output (a huge scraped page / tool dump) before it reaches the next stage, to protect context budget.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — block internal ticket IDs, cap size.</strong> Put a Guardrail node on the edge into your publishing agent. Set the node's <em>On a hit</em> = <code>block</code>. In <strong>Extra Settings</strong>, put <code>ACME-\d{4,}</code> in <strong>Custom regexes</strong> and <code>Project Bluebird</code> in <strong>Literal keywords</strong> (so any leak of that codename halts the run), and set <strong>Max content length</strong> = <code>8000</code> to trim an oversized upstream dump before it hits the next stage.</p>
+</blockquote>
+<h3 id="157-rag-node">15.7 RAG node</h3>
+<p>The RAG node's advanced pipeline lives under its <strong>Advanced</strong> group (fully covered in §6 → <em>RAG</em>). Three tuning knobs worth calling out here:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Score threshold</strong></td>
+<td>Drops chunks scoring below the cutoff, so the agent gets "nothing found" instead of a weak match. <strong>Only</strong> active with <code>dense</code> retrieval or a <code>cross_encoder</code> reranker (BM25/hybrid/multi-query scores aren't absolute — a note is surfaced when it's ignored).</td>
+<td>Float, e.g. <code>0.30</code>. Blank/<code>0</code> = off.</td>
+<td>Precision over recall — a strict lookup where a wrong doc is worse than none.</td>
+</tr>
+<tr>
+<td><strong>Source filter</strong></td>
+<td>Restricts this RAG tool to sources matching filename globs.</td>
+<td>Comma-separated globs, e.g. <code>*.md, policies/*</code>. Blank = all.</td>
+<td>Answer only from <code>*.md</code> handbooks or a <code>policies/</code> subfolder without splitting into separate KBs.</td>
+</tr>
+<tr>
+<td><strong>Query transform</strong> (+ <strong>multi-query N</strong>)</td>
+<td><code>rewrite</code> = one LLM query rewrite; <code>multi_query</code> = fan into N variants and RRF-fuse the results for broader recall (also disables the score threshold).</td>
+<td>none | rewrite | multi_query; N ≥ 1 (default 3). Blank = none.</td>
+<td><code>multi_query</code> when questions are short/ambiguous and one phrasing misses chunks; raise N for hard corpora (costs extra LLM calls).</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — strict answers from the handbooks only.</strong> In the RAG node's <strong>Advanced</strong> group, set <em>Retrieval</em> = <code>dense</code>, <strong>Score threshold</strong> = <code>0.35</code> (drop weak matches → the agent says "not found" rather than guessing), and <strong>Source filter</strong> = <code>*.md</code> (search only the Markdown handbooks in the folder). For short/vague user questions, also set <strong>Query transform</strong> = <code>multi_query</code> with <strong>N</strong> = <code>4</code>.</p>
+</blockquote>
+<h3 id="158-mcp-node">15.8 MCP node</h3>
+<p>Collapsible <strong>Extra Settings</strong>. Env vs Headers are transport-gated (the dialog greys out the one that doesn't apply). Timeouts/lists are emitted only when set.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Allow tools</strong></td>
+<td>Attach only these of the server's tools.</td>
+<td>Comma-separated names. Blank = expose all.</td>
+<td>A server exposes many tools but you want just a couple, for safety/focus.</td>
+</tr>
+<tr>
+<td><strong>Deny tools</strong></td>
+<td>Hide these tools (<strong>deny wins</strong> over allow).</td>
+<td>Comma-separated names. Blank = hide none.</td>
+<td>Block one dangerous tool without enumerating an allow-list.</td>
+</tr>
+<tr>
+<td><strong>Connect / Call timeout (s)</strong></td>
+<td>Bound the initial handshake / each tool call (a dead server is isolated, others keep loading).</td>
+<td>Whole seconds. Blank = 30s / 60s.</td>
+<td>A slow-to-start server needs longer; or fail fast on an unreachable one; or a genuinely long operation exceeds 60s.</td>
+</tr>
+<tr>
+<td><strong>Env vars</strong> (stdio)</td>
+<td>Passed to the launched server process, <strong>merged with</strong> your environment (so PATH survives).</td>
+<td><code>KEY=value</code>, one per line. Blank = inherit env.</td>
+<td>Give a local stdio server a token/path (<code>GITHUB_TOKEN=…</code>).</td>
+</tr>
+<tr>
+<td><strong>Headers</strong> (http/sse)</td>
+<td>Sent with the connection.</td>
+<td><code>Header: value</code>, one per line. Blank = none.</td>
+<td>Authenticate to a remote endpoint (<code>Authorization: Bearer …</code>) or send a tenant header.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — a locked-down GitHub stdio server.</strong> On the MCP node set <em>Transport</em> = <code>stdio</code>, <em>Command</em> = <code>python</code>, <em>Args</em> = <code>github_mcp.py</code>. In <strong>Extra Settings</strong>, put <code>search_issues, get_file</code> in <strong>Allow tools</strong> (only those two are attached), <code>GITHUB_TOKEN=ghp_xxx</code> in <strong>Env vars</strong> (merged into the child's environment), and <strong>Connect timeout</strong> = <code>10</code>. For a remote HTTP server instead, leave Env blank and put <code>Authorization: Bearer &lt;token&gt;</code> in <strong>Headers</strong>.</p>
+</blockquote>
+<h3 id="159-while-node">15.9 While node</h3>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Max iterations</strong></td>
+<td>A per-loop cap: after N passes through this While it forces the <strong>exit</strong> branch (emits a <code>[while] … max_iterations</code> note + trace), independent of the graph-wide recursion limit.</td>
+<td>Whole number ≥ 0. Blank/<code>0</code> = bounded only by the graph recursion limit.</td>
+<td>Guarantee a specific loop stops after a set number of passes — "retry the fix at most 3 times" — so a stuck condition can't spin to the global limit.</td>
+</tr>
+</tbody>
+</table>
+<p><em>(This field is in the main While form, not a collapsible. The loop body must link back to the While node for the counter to advance.)</em></p>
+<blockquote>
+<p><strong>Example — cap a fix-retry loop at 3.</strong> In a <em>worker → critic → While → (body back to worker / exit to next stage)</em> loop, open the While node and set <strong>Max iterations</strong> = <code>3</code>. After three passes it takes the exit branch even if the critic still isn't satisfied, so a stubborn case can't spin up to the graph recursion limit.</p>
+</blockquote>
+<h3 id="1510-router-node">15.10 Router node</h3>
+<p>Collapsible <strong>Extra Settings</strong>. The four <em>routing LLM</em> fields form <strong>one override</strong> that only takes effect when <strong>↳ model</strong> is set (it's prepended as the router's primary LLM; the linked LLM stays as fallback, so the "router needs ≥1 LLM" rule still holds).</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Default branch (tie-break)</strong></td>
+<td>The successor chosen when the router's reply names no recognizable route.</td>
+<td>One of the router's successors. Blank = fall back to the first successor.</td>
+<td>Send anything unclassifiable to a triage/general agent instead of whichever branch was drawn first.</td>
+</tr>
+<tr>
+<td><strong>Routing LLM</strong> (provider / ↳ model / ↳ base URL / ↳ API key)</td>
+<td>Run just the routing <em>decision</em> on a different model.</td>
+<td>Set <strong>↳ model</strong> to activate; the others fill in provider/endpoint/key. Blank = route with the linked LLM.</td>
+<td>Use a cheap/fast classifier for routing while keeping the expensive worker model for the work.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — cheap routing, explicit fallback.</strong> On the Router node → <strong>Extra Settings</strong>, set <strong>Default branch (tie-break)</strong> = <code>Triage</code> (anything the router can't classify goes there instead of the first-drawn branch). To route with a small model, set <strong>↳ model</strong> = <code>deepseek-ai/DeepSeek-V4-Flash</code> (and provider/key if different) — routing then uses it, while the linked LLM stays as the fallback.</p>
+</blockquote>
+<h3 id="1511-webserver-node">15.11 WebServer node</h3>
+<p>Collapsible <strong>Extra Settings</strong>. TLS is all-or-nothing (cert <strong>and</strong> key, or neither).</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Auto-approve tool calls</strong></td>
+<td>Headless: the server auto-approves high-risk tools instead of asking the browser client.</td>
+<td>Checkbox. Default off (the browser is prompted and blocks until answered).</td>
+<td>A fully unattended deployment where no human watches the browser. Leave off for supervised use.</td>
+</tr>
+<tr>
+<td><strong>TLS cert / key</strong></td>
+<td>Serve over encrypted <code>wss://</code> (builds an SSL context from the two <code>.pem</code> paths).</td>
+<td>Filesystem paths. Blank = plain <code>ws://</code>.</td>
+<td>Expose the socket beyond localhost securely.</td>
+</tr>
+<tr>
+<td><strong>Allowed origins</strong></td>
+<td>Reject cross-origin WebSocket handshakes from other origins.</td>
+<td>Comma-separated origins. Blank = allow any.</td>
+<td>Lock the server to your own front-end origin(s).</td>
+</tr>
+<tr>
+<td><strong>Max connections</strong></td>
+<td>Reject new sockets past the cap (<code>server busy</code>) and free the slot on disconnect.</td>
+<td>Whole number ≥ 0. Blank/<code>0</code> = unlimited.</td>
+<td>Protect a small/single-user deployment from fan-out.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — a secured headless endpoint.</strong> On the WebServer node → <strong>Extra Settings</strong>, tick <strong>Auto-approve tool calls</strong> (no human to confirm in the browser), set <strong>TLS cert</strong> and <strong>TLS key</strong> to your <code>.pem</code> paths (serves <code>wss://</code>), <strong>Allowed origins</strong> = <code>https://app.example.com</code> (only your front-end can connect), and <strong>Max connections</strong> = <code>20</code>.</p>
+</blockquote>
+<h3 id="1512-gui-node">15.12 GUI node</h3>
+<p>Collapsible <strong>Extra Settings</strong> — a single <strong>custom <code>gui.py</code></strong> control (a <em>Custom gui.py…</em> file picker + <em>Use built-in</em> to clear, and a status label).</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>What it does</th>
+<th>Values · blank default</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Custom <code>gui.py</code></strong></td>
+<td>Emits <em>your</em> single-file <code>gui.py</code> in place of the built-in chat window (with <code>@AGENT_NAME@</code> filled in). Your file drives the agent via <code>import agent</code> / <code>agent.run(...)</code>. A <strong>syntax error blocks</strong> generation; a missing <code>import agent</code>/<code>.run(</code> is a soft warning in the status label.</td>
+<td>Loaded Python source. Blank = the built-in window (byte-identical).</td>
+<td>Ship a branded or task-specific front-end (a form UI, a differently-laid-out chat) while still driving the generated agent. Multi-file GUIs aren't supported here.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Example — ship your own front-end.</strong> Link the GUI node to the entry agent. Open it → expand <strong>Extra Settings</strong> → click <strong>Custom gui.py…</strong> and pick your <code>my_ui.py</code>. The status label should read <em>"Custom gui.py loaded (N chars)"</em> with no ⚠ (your file has <code>import agent</code> and calls <code>agent.run(...)</code>). Generate — the output's <code>gui.py</code> is your file, with <code>@AGENT_NAME@</code> filled in. Changed your mind? Click <strong>Use built-in</strong> to revert.</p>
+</blockquote>
+<p><em>(Generating <code>gui.py</code> at all still requires linking the GUI node to the entry agent — see §7.)</em></p></body></html>

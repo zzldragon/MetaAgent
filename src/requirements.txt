@@ -1,0 +1,5 @@
+# MetaAgent's own runtime dependencies.
+PySide6>=6.6          # Qt UI for the app itself (main.py -> canvas_qt/*)
+openai>=1.40.0        # OpenAI-compatible chat client (DeepSeek via SiliconFlow, etc.)
+
+# Generated agents ship their own requirements.txt (incl. PySide6 for their GUI).

@@ -1,0 +1,105 @@
+:root {
+  --bg: #1e1f24;
+  --panel: #26282f;
+  --ink: #e8eaed;
+  --muted: #9aa0a6;
+  --accent: #1565c0;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+.app { display: flex; flex-direction: column; height: 100%; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid #000;
+  flex: 0 0 auto;
+}
+.toolbar h1 { font-size: 15px; font-weight: 600; margin: 0 8px 0 0; letter-spacing: 0.2px; }
+.toolbar .spacer { flex: 1; }
+.btn {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 13px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.btn.secondary { background: #3a3d46; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+label.file { font-size: 13px; color: var(--muted); cursor: pointer; }
+label.file input { display: none; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid #000;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.legend .item { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.legend .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #00000055; }
+.flow { flex: 1 1 auto; min-height: 0; }
+
+.mnode {
+  width: 168px;
+  border-radius: 10px;
+  border: 1px solid #00000033;
+  box-shadow: 0 2px 6px #00000055;
+  padding: 8px 10px;
+  color: #1a1a1a;
+  font-size: 12px;
+  position: relative;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.mnode .kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  opacity: 0.65;
+  font-weight: 700;
+}
+.mnode .name { font-size: 13px; font-weight: 700; margin: 1px 0 2px; }
+.mnode .sub {
+  font-size: 11px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mnode.running { box-shadow: 0 0 0 3px #ffa00088, 0 2px 10px #000; }
+.mnode.done { box-shadow: 0 0 0 3px #2e7d3288, 0 2px 8px #000; }
+.mnode.error { box-shadow: 0 0 0 3px #c6282888, 0 2px 8px #000; }
+.mnode .badge {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-weight: 700;
+}
+.react-flow__handle { width: 7px; height: 7px; background: #607d8b; border: 1px solid #fff; }
+.hint {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  border-top: 1px solid #000;
+  flex: 0 0 auto;
+}

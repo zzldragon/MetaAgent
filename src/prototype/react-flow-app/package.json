@@ -1,0 +1,22 @@
+{
+  "name": "metaagent-react-flow",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MetaAgent node-graph canvas built on React Flow (Vite + React).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "reactflow": "^11.11.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

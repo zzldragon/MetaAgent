@@ -1,0 +1,5 @@
+# MetaAgent client
+websockets>=12.0     # AgentClient transport (matches the generated server)
+PySide6>=6.5.0       # desktop GUI (client/qt_app.py)
+aiohttp>=3.9         # only for the IM webhook gateway (client/gateway.py)
+cryptography>=41.0   # only for encrypted callbacks: WeChat Work + Feishu Encrypt Key

@@ -1,0 +1,203 @@
+========================================================================
+ Compiling MetaAgent (the designer app) to a standalone Windows .exe
+========================================================================
+
+Produces dist/MetaAgent/MetaAgent.exe — the full canvas designer + coding-agent,
+runnable by a designer who has NO Python installed. Bundles everything the app
+reads at runtime (templates, the generated-agent runtime, assets, example graphs,
+tools). NOT config.json (it holds your API key — see §3a); the app self-creates a
+blank one on first run.
+
+------------------------------------------------------------------------
+1. Prerequisites
+------------------------------------------------------------------------
+- Windows, Python 3.11+ (64-bit). (3.14 works with PyInstaller 6.21+; 3.11-3.12
+  are the most battle-tested if you hit odd hook issues.)
+- Build in a CLEAN virtual environment. PyInstaller bundles whatever is
+  importable, so building in a big shared env (one that has torch / tensorflow /
+  scipy / pandas / wx / IPython ...) produces an 800 MB+ result. A clean venv
+  with only MetaAgent's deps keeps it lean.
+
+    py -m venv build-venv
+    build-venv\Scripts\python.exe -m pip install --upgrade pip
+    build-venv\Scripts\python.exe -m pip install -r requirements.txt
+    build-venv\Scripts\python.exe -m pip install pyinstaller
+
+  (requirements.txt = PySide6 + openai. Do NOT install requirements-dev.txt or
+   any optional agent deps into the build venv unless you need them frozen in.)
+
+!!! ALWAYS invoke PyInstaller as  build-venv\Scripts\python.exe -m PyInstaller ...
+    NOT the bare `pyinstaller` command. `activate` does NOT guarantee the bare
+    command resolves to the venv — if pyinstaller isn't installed IN the venv,
+    PowerShell silently falls back to a `pyinstaller.exe` elsewhere on PATH (e.g.
+    a fat global Python), which drags in torch/scipy/etc. and gives an 800 MB,
+    34-minute build. Calling the venv's python -m PyInstaller can't fall back.
+    VERIFY: the second log line must read  `Python environment: ...\build-venv`
+    (NOT some other Python). If it doesn't, you're building from the wrong env.
+
+------------------------------------------------------------------------
+2. Build (run from the repo root)
+------------------------------------------------------------------------
+==> RECOMMENDED: build from the tuned spec file  MetaAgent.spec  (in the repo
+    root). It is a --onedir spec that already lists --add-data AND an `excludes`
+    list of the heavy libs the designer never imports (torch/scipy/pandas/numpy/
+    pyarrow/onnxruntime/wx/IPython/jedi/PIL/matplotlib/...). Result: `_internal`
+    ~120 MB (mostly PySide6, the GUI toolkit) instead of ~800 MB, in ~5 min.
+
+    build-venv\Scripts\python.exe -m PyInstaller --noconfirm --clean MetaAgent.spec
+
+  -> dist\MetaAgent\  ( MetaAgent.exe  +  _internal\ ).  Ship the WHOLE folder
+     (see §3) — the exe needs _internal\ next to it.
+
+  !!! Build from the SPEC, not from main.py. Running `pyinstaller main.py ...`
+      (below) REGENERATES MetaAgent.spec from scratch and DROPS the excludes,
+      giving the huge build again. Edit the EXCLUDES list in MetaAgent.spec if you
+      ever need to add/remove one; if a built exe errors "No module named X",
+      remove X from EXCLUDES and rebuild.
+  Limitation: a spec-built (or any clean-venv) designer can DESIGN / GENERATE /
+  COMPILE data-/RAG-/vision agents, but Debug-Running one IN-PROCESS needs its
+  libs (pandas/PIL/numpy/...), which are excluded. Run those agents from their own
+  generated folder (each ships its own requirements.txt).
+
+------------------------------------------------------------------------
+2b. Alternative: ad-hoc build straight from main.py (no excludes -> bigger)
+------------------------------------------------------------------------
+Only if you don't want to use the spec. These REGENERATE MetaAgent.spec and have
+NO excludes, so from a clean venv they're a bit larger than §2 and from a fat env
+they're huge. Pick ONE layout:
+
+(A) FOLDER build  --onedir  (fastest startup):
+
+build-venv\Scripts\python.exe -m PyInstaller --onedir --windowed --noconfirm --clean --name MetaAgent main.py --icon assets/MetaAgent.ico --copy-metadata openai --add-data "templates;templates" --add-data "runtime;runtime" --add-data "assets;assets" --add-data "graphs;graphs" --add-data "tools;tools" --add-data ".claude/skills;.claude/skills"
+
+  -> dist\MetaAgent\  ( MetaAgent.exe  +  _internal\ ). NOT self-contained: at
+     startup the exe looks for _internal\ (python3XX.dll, Qt DLLs, your --add-data)
+     RIGHT NEXT TO it. Ship the WHOLE folder (§3). Copying MetaAgent.exe alone to
+     another PC gives "cannot find python3XX.dll / _internal" <- the #1 support
+     call; a distribution mistake, not a build bug.
+
+(B) SINGLE-FILE build  --onefile  (one .exe, easiest to hand to someone):
+
+build-venv\Scripts\python.exe -m PyInstaller --onefile --windowed --noconfirm --clean --name MetaAgent main.py --icon assets/MetaAgent.ico --copy-metadata openai --add-data "templates;templates" --add-data "runtime;runtime" --add-data "assets;assets" --add-data "graphs;graphs" --add-data "tools;tools" --add-data ".claude/skills;.claude/skills"
+
+  -> dist\MetaAgent.exe  (ONE file, nothing else to ship). Unpacks to a temp dir
+     each launch (a few sec slower). User data (config.json, generated_agents\,
+     tools\) is written NEXT TO the .exe (not the temp dir) — app_config handles
+     this automatically when frozen, so settings persist across runs. (To add the
+     excludes here too: append --exclude-module torch --exclude-module scipy ...)
+
+!!! DO NOT bundle your working config.json — it holds YOUR API key. It is left
+    OUT of every command on purpose. On first run the app CREATES a fresh
+    config.json (blank key) from built-in defaults; the designer pastes their OWN
+    key in Settings. See §3a.
+!!! DROP --debug=all for a real build. It swaps in the debug bootloader
+    (runw_d.exe) and is only for diagnosing startup crashes.
+!!! `_internal` fills in AFTER MetaAgent.exe appears (COLLECT copies the DLLs
+    last). On a big build the exe can show minutes before _internal is complete —
+    wait for "Build complete!" AND for dist\MetaAgent\ to stop growing before you
+    conclude anything is "missing".
+
+What each flag does:
+  --onedir / --onefile  folder vs single-file layout (above).
+  --windowed          no console window (it's a GUI app).
+  --clean --noconfirm rebuild from scratch without prompts.
+  --name MetaAgent    the exe (and folder, for --onedir) name.
+  --icon ...          the window / taskbar icon.
+  --copy-metadata openai   openai reads its own package metadata at import;
+                      PyInstaller must ship it or the app fails to start.
+  --add-data "SRC;DEST"    (Windows uses ';' as the separator) — bundles the
+                      DATA the app reads at runtime. All of these are REQUIRED
+                      for the app to actually generate agents:
+      templates       role prompt templates (codegen reads these to build agents)
+      runtime         the generated-agent runtime fragments — codegen globs
+                      runtime/*.py at run time and inlines them into every agent
+                      it emits. WITHOUT THIS the exe launches but "Generate" fails.
+      assets          window/taskbar icon
+      graphs          the example .mta graphs shown on the welcome screen
+      tools           bundled/example tool files (seeded into the writable tools\
+                      folder the coding agent reads/writes)
+      .claude/skills  the design-mta-graph skill (SKILL.md + ConfigTable.md) the
+                      Designer agent reads at runtime — WITHOUT THIS the Designer
+                      agent's brain + read_config_table come up empty.
+Read-only bundle data (templates/runtime/assets/graphs) is resolved from the
+bundle (sys._MEIPASS); writable data is resolved next to the exe. Both work with
+the --add-data above — no code change needed.
+
+------------------------------------------------------------------------
+3. Run / distribute
+------------------------------------------------------------------------
+FOLDER build (--onedir):
+- Output: dist\MetaAgent\  (MetaAgent.exe  +  _internal\).
+- To share: zip and ship the WHOLE dist\MetaAgent\ folder. The exe and
+  _internal\ MUST stay together in the same folder. Do NOT copy the exe alone.
+- The designer unzips and runs MetaAgent\MetaAgent.exe from inside the folder.
+- config.json, generated_agents\ and tools\ are written NEXT TO the exe
+  (inside dist\MetaAgent\), so they survive and are easy to find/back up.
+
+SINGLE-FILE build (--onefile):
+- Output: dist\MetaAgent.exe  — ship just this one file.
+- On the target PC, put it in its OWN folder (e.g. C:\MetaAgent\) before first
+  run: it will create config.json, generated_agents\ and tools\ beside itself.
+- Slightly slower startup (temp unpack each launch); everything else identical.
+
+Either way, first run: Settings -> API Key / Model, paste the LLM key.
+
+------------------------------------------------------------------------
+3a. API key & shipping default settings  (IMPORTANT — don't leak your key)
+------------------------------------------------------------------------
+config.json holds an API key. NEVER bundle your working config.json into a shared
+exe — every copy would carry your key. The build commands above deliberately omit it;
+on first run the app writes a fresh config.json (blank key, built-in defaults) NEXT
+TO the exe, and the designer sets their own key via Settings.
+
+If you WANT to ship custom defaults (e.g. a house model / base_url / proxy), bundle a
+SANITISED copy — never the live one:
+    1. copy config.json  config.default.json
+    2. edit config.default.json -> set  "api_key": ""  and blank any private "proxy"
+    3. add to the build command:  --add-data "config.default.json;."   and rename it to
+       config.json inside the bundle (or just keep the file named config.json but with a
+       blank key). Verify the built _internal\config.json has NO key before sharing.
+
+------------------------------------------------------------------------
+4. Shipping YOUR tools and graphs with the exe
+------------------------------------------------------------------------
+Everything under tools/ and graphs/ at build time is bundled:
+- Drop your tool files (*.py) into  tools/   before building  -> they ship inside
+  the exe and are available to link on Tool nodes / the coding agent.
+- Drop your graphs (*.mta) into      graphs/  before building  -> they appear on
+  the welcome launcher for the designer to open.
+Rebuild (step 2) after adding them. (A .mta already bundles the tool files a graph
+uses, so a shared .mta is self-contained even without the tools/ folder.)
+
+------------------------------------------------------------------------
+5. Troubleshooting
+------------------------------------------------------------------------
+- "cannot find python3XX.dll" / "_internal not found" on another PC  -> a
+  --onedir build was shipped as the bare exe. The exe needs its _internal\
+  sibling. Ship the WHOLE dist\MetaAgent\ folder (§3), or rebuild --onefile (§2B)
+  for a single self-contained exe.
+- "Generate" fails / template or runtime not found  -> a --add-data was omitted;
+  re-check templates and runtime are in the command.
+- exe won't start, "openai metadata" error           -> keep --copy-metadata openai.
+- huge exe (200 MB+)                                  -> you built in a fat env;
+  rebuild in a clean venv (step 1).
+- a module reported missing at runtime               -> add
+  --hidden-import <module>  (or --collect-submodules openai) and rebuild.
+  ("Hidden import tzdata not found" is a harmless WARNING — ignore it.)
+- exe crashes at start on a CLEAN target PC (no dev tools) -> install the
+  Microsoft Visual C++ 2015-2022 Redistributable (x64) on that PC. Python's
+  runtime DLLs depend on it; a fresh Windows may lack it.
+- Python 3.14 build acts up (3.14 is very new)       -> build with Python
+  3.11-3.12 for the widest PyInstaller/hook compatibility.
+- Antivirus flags the fresh exe                       -> common for unsigned
+  PyInstaller output; sign it or whitelist for internal use.
+
+========================================================================
+ Compiling a GENERATED AGENT (not the designer) to an .exe
+========================================================================
+Different target: the app a *graph* produces. Two ways:
+  - In the canvas:  Generate -> Compile (PyInstaller)  — builds the current
+    generated agent (agent.py / gui.py) into its own exe.
+  - By hand: each generated_agents/<name>/ ships its own build.bat and
+    requirements.txt — `pip install -r requirements.txt` then run build.bat.
+Do this in a clean venv too, for the same size reason.
