@@ -19,10 +19,6 @@
 # agents, but Debug-Running one IN-PROCESS needs its libs (pandas/PIL/numpy/...),
 # which are excluded here -- same as a clean-venv build. Run those agents from their
 # own generated folder (they ship their own requirements.txt).
-#
-# To add extra libs for in-process Debug Run WITHOUT rebuilding, drop a `pylibs/`
-# folder next to the exe and `pip install --target pylibs <pkg>` — main.py appends it
-# to sys.path at startup.
 
 from PyInstaller.utils.hooks import copy_metadata
 

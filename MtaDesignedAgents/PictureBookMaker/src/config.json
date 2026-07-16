@@ -4,25 +4,25 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "",
+        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
         "temperature": 0.95,
         "request_timeout_s": 120.0,
-        "proxy": "http://10.144.1.10:8080"
+        "proxy": ""
       }
     ],
     "illustrator": [
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "",
+        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
         "request_timeout_s": 120.0,
-        "proxy": "http://10.144.1.10:8080",
+        "proxy": "",
         "tool_choice": "specific",
         "tool_choice_name": "illustrate_missing_pages"
       }
@@ -31,12 +31,12 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "",
+        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
         "request_timeout_s": 120.0,
-        "proxy": "http://10.144.1.10:8080",
+        "proxy": "",
         "response_format": "json_object",
         "tool_choice": "specific",
         "tool_choice_name": "make_picture_book_pdf"
@@ -46,12 +46,12 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "",
+        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
         "request_timeout_s": 120.0,
-        "proxy": "http://10.144.1.10:8080",
+        "proxy": "",
         "response_format": "json_object",
         "tool_choice": "specific",
         "tool_choice_name": "sync_page_status"
@@ -96,5 +96,29 @@
   },
   "while_max_iterations": {
     "gate": 5
-  }
+  },
+  "platforms": {
+    "siliconflow": {
+      "label": "SiliconFlow",
+      "provider": "siliconflow",
+      "chat_base_url": "https://api.siliconflow.cn/v1",
+      "chat_model": "deepseek-ai/DeepSeek-V4-Flash",
+      "image_url": "https://api.siliconflow.cn/v1/images/generations",
+      "image_model": "Kwai-Kolors/Kolors",
+      "edit_model": "Kwai-Kolors/Kolors",
+      "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
+      "proxy": ""
+    },
+    "nvidia": {
+      "label": "NVIDIA",
+      "provider": "nvidia",
+      "chat_base_url": "https://integrate.api.nvidia.com/v1",
+      "chat_model": "deepseek-ai/deepseek-v4-flash",
+      "image_url": "https://api.siliconflow.cn/v1/images/generations",
+      "image_model": "Kwai-Kolors/Kolors",
+      "edit_model": "Kwai-Kolors/Kolors",
+      "image_api_key": ""
+    }
+  },
+  "platform": "siliconflow"
 }
