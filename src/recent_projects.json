@@ -1,7 +1,23 @@
 [
   {
+    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\HumanApproval.mta",
+    "opened_at": 1784207382.3141966
+  },
+  {
+    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\helloMta.json",
+    "opened_at": 1784207376.167581
+  },
+  {
+    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\ForEachDemo.mta",
+    "opened_at": 1784207369.7342813
+  },
+  {
+    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\CustomTypesDemo.mta",
+    "opened_at": 1784207363.7694168
+  },
+  {
     "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\BadDataAnalyst.mta",
-    "opened_at": 1783949911.490223
+    "opened_at": 1784207359.444677
   },
   {
     "path": "D:\\sw\\templates\\graphs\\AiWeChatContentFactory.mta",
@@ -14,21 +30,5 @@
   {
     "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\StateRefineDemo.mta",
     "opened_at": 1783863564.2759087
-  },
-  {
-    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\MultiPatternAgent.mta",
-    "opened_at": 1783863549.5175009
-  },
-  {
-    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\HumanApproval.mta",
-    "opened_at": 1783863537.655803
-  },
-  {
-    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\helloMta.json",
-    "opened_at": 1783863531.7768266
-  },
-  {
-    "path": "D:\\sw\\MTA202678\\dist\\MetaAgent\\src\\graphs\\ForEachDemo.mta",
-    "opened_at": 1783863521.982109
   }
 ]
