@@ -4,7 +4,7 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
+        "api_key": "",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
@@ -17,7 +17,7 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
+        "api_key": "",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
@@ -31,7 +31,7 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
+        "api_key": "",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
@@ -46,7 +46,7 @@
       {
         "provider": "siliconflow",
         "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
+        "api_key": "",
         "base_url": "https://api.siliconflow.cn/v1",
         "vision": false,
         "context_capacity": 0,
@@ -106,13 +106,13 @@
       "image_url": "https://api.siliconflow.cn/v1/images/generations",
       "image_model": "Kwai-Kolors/Kolors",
       "edit_model": "Kwai-Kolors/Kolors",
-      "api_key": "sk-nuijezekmlmxmlklfeskojalvouakixsqgcjnumbytmpnyic",
+      "api_key": "",
       "proxy": ""
     },
     "nvidia": {
       "label": "NVIDIA",
       "provider": "nvidia",
-      "chat_base_url": "https://integrate.api.nvidia.com/v1",
+      "chat_base_url": "https://api.siliconflow.cn/v1",
       "chat_model": "deepseek-ai/deepseek-v4-flash",
       "image_url": "https://api.siliconflow.cn/v1/images/generations",
       "image_model": "Kwai-Kolors/Kolors",
